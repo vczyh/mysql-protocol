@@ -3,6 +3,7 @@ package test
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,24 @@ func TestD(t *testing.T) {
 	m := map[int]User{
 		1: u,
 	}
-	u.Name="b"
+	u.Name = "b"
 	t.Log(m)
+}
+
+type Value []byte
+
+func (v *Value) IsNull() bool {
+	return v == nil
+}
+func (v *Value) String() string {
+	if v.IsNull() {
+		return "<null>"
+	}
+	return string(*v)
+}
+
+func TestE(t *testing.T) {
+	val := new(Value)
+	fmt.Println(val.IsNull())
+	fmt.Println(val)
 }

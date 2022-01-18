@@ -1,6 +1,10 @@
 package command
 
-import "mysql-protocol/packet/generic"
+import (
+	"bytes"
+	"mysql-protocol/packet/generic"
+	"mysql-protocol/packet/types"
+)
 
 const (
 	COM_SLEEP               = 0x00
@@ -45,5 +49,71 @@ func NewQuit() *generic.Simple {
 // NewInitDB https://dev.mysql.com/doc/internals/en/com-init-db.html
 func NewInitDB(db string) *generic.Simple {
 	data := append([]byte{COM_INIT_DB}, db...)
+	return generic.NewSimple(data)
+}
+
+func NewQuery(query string) *generic.Simple {
+	data := append([]byte{COM_QUERY}, query...)
+	return generic.NewSimple(data)
+}
+
+func ParseQueryResponse(data []byte) (uint64, error) {
+	if len(data) < 5 {
+		return 0, generic.ErrPacketData
+	}
+	buf := bytes.NewBuffer(data[4:])
+	columnCount, err := types.LengthEncodedInteger.Get(buf)
+	return columnCount, err
+}
+
+// NewCreateDB https://dev.mysql.com/doc/internals/en/com-create-db.html
+func NewCreateDB(db string) *generic.Simple {
+	data := append([]byte{COM_CREATE_DB}, db...)
+	return generic.NewSimple(data)
+}
+
+func NewDropDB(db string) *generic.Simple {
+	data := append([]byte{COM_DROP_DB}, db...)
+	return generic.NewSimple(data)
+}
+
+func NewShutdown() *generic.Simple {
+	return generic.NewSimple([]byte{COM_SHUTDOWN, 0x10})
+}
+
+func NewStatistics() *generic.Simple {
+	return generic.NewSimple([]byte{COM_STATISTICS})
+}
+
+func NewProcessInfo() *generic.Simple {
+	return generic.NewSimple([]byte{COM_PROCESS_INFO})
+}
+
+func NewProcessKill(connectionId int) *generic.Simple {
+	connectionIdData := types.FixedLengthInteger.Dump(uint64(connectionId), 4)
+	data := append([]byte{COM_PROCESS_KILL}, connectionIdData...)
+	return generic.NewSimple(data)
+}
+
+func NewDebug() *generic.Simple {
+	return generic.NewSimple([]byte{COM_DEBUG})
+}
+
+func NewPing() *generic.Simple {
+	return generic.NewSimple([]byte{COM_PING})
+}
+
+func NewResetConnection() *generic.Simple {
+	return generic.NewSimple([]byte{COM_RESET_CONNECTION})
+}
+
+func NewStmtPrepare(query string) *generic.Simple {
+	data := append([]byte{COM_STMT_PREPARE}, query...)
+	return generic.NewSimple(data)
+}
+
+func NewStmtCLost(stmtId uint32) *generic.Simple {
+	stmtIdData := types.FixedLengthInteger.Dump(uint64(stmtId), 4)
+	data := append([]byte{COM_STMT_CLOSE}, stmtIdData...)
 	return generic.NewSimple(data)
 }

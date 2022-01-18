@@ -45,7 +45,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 	case generic.IsOK(data) || generic.IsErr(data):
 		return c.handleOKErrPacket(data)
 	case generic.IsAuthMoreData(data):
-		moreDataPkt, err := connection.ParseAuthMoreData(data)
+		pluginData, err := connection.ParseAuthMoreData(data)
 		if err != nil {
 			return err
 		}
@@ -53,7 +53,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 		// https://dev.mysql.com/blog-archive/preparing-your-community-connector-for-mysql-8-part-2-sha256/
 		// https://dev.mysql.com/doc/dev/mysql-server/latest/page_caching_sha2_authentication_exchanges.html
 		case connection.CachingSHA2Password:
-			switch moreDataPkt.PluginData[0] {
+			switch pluginData[0] {
 			// fast authentication
 			case 0x03:
 				return c.readOKErrPacket()
@@ -78,12 +78,16 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 }
 
 func (c *Conn) writeAuthSwitchResponsePacket(plugin connection.AuthenticationPlugin, authData []byte) (err error) {
-	var switchResPkt connection.AuthSwitchResponse
-	switchResPkt.AuthRes, err = connection.EncryptPassword(plugin, []byte(c.password), authData)
-	if err != nil {
-		return err
-	}
-	return c.writePacket(&switchResPkt)
+	encryptedPassword, err := connection.EncryptPassword(plugin, []byte(c.password), authData)
+	authRes := connection.NewAuthSwitchResponse(encryptedPassword)
+	return c.writeCommandPacket(authRes)
+
+	//var switchResPkt connection.AuthSwitchResponse
+	//switchResPkt.AuthRes, err = connection.EncryptPassword(plugin, []byte(c.password), authData)
+	//if err != nil {
+	//	return err
+	//}
+	//return c.writePacket(&switchResPkt)
 }
 
 func (c *Conn) requestPublicKey() ([]byte, error) {
@@ -96,12 +100,12 @@ func (c *Conn) requestPublicKey() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	pubKeyPkt, err := connection.ParseAuthMoreData(data)
+	pluginData, err := connection.ParseAuthMoreData(data)
 	if err != nil {
 		return nil, err
 	}
 
-	return pubKeyPkt.PluginData, nil
+	return pluginData, nil
 }
 
 func (c *Conn) writePasswordEncryptedWithPublicKeyPacket(data []byte, seed []byte) error {

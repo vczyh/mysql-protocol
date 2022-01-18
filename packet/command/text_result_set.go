@@ -6,29 +6,6 @@ import (
 	"mysql-protocol/packet/types"
 )
 
-// ResultSet https://dev.mysql.com/doc/internals/en/com-query-response.html
-type ResultSet struct {
-	generic.Header
-
-	ColumnCount uint64
-}
-
-func ParseResultSet(bs []byte) (*ResultSet, error) {
-	var p ResultSet
-	var err error
-
-	buf := bytes.NewBuffer(bs)
-	if err = p.Header.Parse(buf); err != nil {
-		return nil, err
-	}
-
-	p.ColumnCount, err = types.LengthEncodedInteger.Get(buf)
-	if err != nil {
-		return nil, generic.ErrPacketData
-	}
-	return nil, nil
-}
-
 type TableColumnType uint8
 
 const (
@@ -64,6 +41,73 @@ const (
 	MYSQL_TYPE_GEOMETRY
 )
 
+func (t TableColumnType) String() string {
+	switch t {
+	case MYSQL_TYPE_DECIMAL:
+		return "MYSQL_TYPE_DECIMAL"
+	case MYSQL_TYPE_TINY:
+		return "MYSQL_TYPE_TINY"
+	case MYSQL_TYPE_SHORT:
+		return "MYSQL_TYPE_SHORT"
+	case MYSQL_TYPE_LONG:
+		return "MYSQL_TYPE_LONG"
+	case MYSQL_TYPE_FLOAT:
+		return "MYSQL_TYPE_FLOAT"
+	case MYSQL_TYPE_DOUBLE:
+		return "MYSQL_TYPE_DOUBLE"
+	case MYSQL_TYPE_NULL:
+		return "MYSQL_TYPE_NULL"
+	case MYSQL_TYPE_TIMESTAMP:
+		return "MYSQL_TYPE_TIMESTAMP"
+	case MYSQL_TYPE_LONGLONG:
+		return "MYSQL_TYPE_LONGLONG"
+	case MYSQL_TYPE_INT24:
+		return "MYSQL_TYPE_INT24"
+	case MYSQL_TYPE_DATE:
+		return "MYSQL_TYPE_DATE"
+	case MYSQL_TYPE_TIME:
+		return "MYSQL_TYPE_TIME"
+	case MYSQL_TYPE_DATETIME:
+		return "MYSQL_TYPE_DATETIME"
+	case MYSQL_TYPE_YEAR:
+		return "MYSQL_TYPE_YEAR"
+	case MYSQL_TYPE_NEWDATE:
+		return "MYSQL_TYPE_NEWDATE"
+	case MYSQL_TYPE_VARCHAR:
+		return "MYSQL_TYPE_VARCHAR"
+	case MYSQL_TYPE_BIT:
+		return "MYSQL_TYPE_BIT"
+	case MYSQL_TYPE_TIMESTAMP2:
+		return "MYSQL_TYPE_TIMESTAMP2"
+	case MYSQL_TYPE_DATETIME2:
+		return "MYSQL_TYPE_DATETIME2"
+	case MYSQL_TYPE_TIME2:
+		return "MYSQL_TYPE_TIME2"
+	case MYSQL_TYPE_NEWDECIMAL:
+		return "MYSQL_TYPE_NEWDECIMAL"
+	case MYSQL_TYPE_ENUM:
+		return "MYSQL_TYPE_ENUM"
+	case MYSQL_TYPE_SET:
+		return "MYSQL_TYPE_SET"
+	case MYSQL_TYPE_TINY_BLOB:
+		return "MYSQL_TYPE_TINY_BLOB"
+	case MYSQL_TYPE_MEDIUM_BLOB:
+		return "MYSQL_TYPE_MEDIUM_BLOB"
+	case MYSQL_TYPE_LONG_BLOB:
+		return "MYSQL_TYPE_LONG_BLOB"
+	case MYSQL_TYPE_BLOB:
+		return "MYSQL_TYPE_BLOB"
+	case MYSQL_TYPE_VAR_STRING:
+		return "MYSQL_TYPE_VAR_STRING"
+	case MYSQL_TYPE_STRING:
+		return "MYSQL_TYPE_STRING"
+	case MYSQL_TYPE_GEOMETRY:
+		return "MYSQL_TYPE_GEOMETRY"
+	default:
+		return "Unknown TableColumnType"
+	}
+}
+
 type ColumnDefinition struct {
 	generic.Header
 
@@ -79,6 +123,7 @@ type ColumnDefinition struct {
 	ColumnType   uint8
 	Flags        uint16
 	Decimals     uint8
+	DefaultValue []byte
 }
 
 func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
@@ -134,12 +179,6 @@ func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
 	// filler [00] [00]
 	buf.Next(2)
 
-	// todo
-	// if command was COM_FIELD_LIST {
-	// 		lenenc_int     length of default-values
-	// 		string[$len]   default values
-	// }
-
 	return &p, nil
 }
 
@@ -175,9 +214,29 @@ func ParseTextResultSetRow(bs []byte) (*TextResultSetRow, error) {
 	return &p, nil
 }
 
-func (p *TextResultSetRow) GetValues() (values []string) {
-	for _, val := range p.ColumnValues {
-		values = append(values, string(val))
+type Value string
+
+func (v *Value) IsNull() bool {
+	return v == nil
+}
+
+func (v *Value) String() string {
+	if v.IsNull() {
+		return "<null>"
+	}
+	return string(*v)
+}
+
+func (p *TextResultSetRow) GetValues() (values []*Value) {
+	for _, columnVal := range p.ColumnValues {
+		var val *Value
+		if len(columnVal) == 1 && columnVal[0] == 0xfb {
+			// Null
+		} else {
+			v := Value(columnVal)
+			val = &v
+		}
+		values = append(values, val)
 	}
 	return values
 }

@@ -118,6 +118,23 @@ func (c *Conn) readPacket() ([]byte, error) {
 	return packetData, nil
 }
 
+func (c *Conn) readUntilEOFPacket() error {
+	for {
+		data, err := c.readPacket()
+		if err != nil {
+			return err
+		}
+
+		switch {
+		case generic.IsErr(data):
+			return c.handleOKErrPacket(data)
+		case generic.IsEOF(data):
+			// TODO status
+			return nil
+		}
+	}
+}
+
 func (c *Conn) writePacket(packet generic.Packet) error {
 	c.sequence++
 	packet.SetSequence(int(c.sequence))
@@ -148,6 +165,7 @@ func (c *Conn) readOKErrPacket() error {
 	if err != nil {
 		return err
 	}
+	fmt.Println(hex.Dump(data)) // TODO
 	return c.handleOKErrPacket(data)
 }
 
