@@ -1,6 +1,8 @@
 package client
 
 import (
+	"database/sql/driver"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -235,5 +237,61 @@ func TestResetConnection(t *testing.T) {
 
 	if err := conn.ResetConnection(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPrepareExecute(t *testing.T) {
+	conn, err := CreateConnection(
+		WithHost("10.0.44.59"),
+		WithPort(3306),
+		WithUser("root"),
+		WithPassword("Unicloud@1221"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stmt, err := conn.Prepare("INSERT INTO db1.tb (name) VALUES (?)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := stmt.Exec([]driver.Value{"test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(res.LastInsertId())
+	t.Log(res.RowsAffected())
+}
+
+func TestPrepareQuery(t *testing.T) {
+	conn, err := CreateConnection(
+		WithHost("10.0.44.59"),
+		WithPort(3306),
+		WithUser("root"),
+		WithPassword("Unicloud@1221"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stmt, err := conn.Prepare("SELECT user, host FROM mysql.user WHERE user = ?")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := stmt.Query([]driver.Value{"root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println("columns", rows.Columns())
+
+	//var user, host string
+	dest := make([]driver.Value, 2)
+	if err := rows.Next(dest); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, val := range dest {
+		t.Logf("%s", val)
 	}
 }

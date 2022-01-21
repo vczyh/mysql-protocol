@@ -42,8 +42,57 @@ func ParseStmtPrepareOKFirst(data []byte) (*StmtPrepareOKFirst, error) {
 type StmtExecute struct {
 	generic.Header
 
-	ComStmtExecute uint8
-	StmtId         uint32
-	Flags          uint8
-	IterationCount uint32
+	ComStmtExecute     uint8
+	StmtId             uint32
+	Flags              uint8
+	IterationCount     uint32
+	NullBitMap         []byte
+	NewParamsBoundFlag uint8
+	ParamType          []byte
+	ParamValue         []byte
+}
+
+func NewStmtExecute() *StmtExecute {
+	return &StmtExecute{ComStmtExecute: COM_STMT_EXECUTE}
+}
+
+func (p *StmtExecute) CreateNullBitMap(paramCount, offset int) {
+	if p.NullBitMap == nil {
+		p.NullBitMap = make([]byte, (paramCount+7+offset)/8)
+	}
+}
+
+func (p *StmtExecute) NullBitMapSet(paramCount, index, offset int) {
+	if p.NullBitMap == nil {
+		p.NullBitMap = make([]byte, (paramCount+7+offset)/8)
+	}
+	bytePos := (index + offset) / 8
+	bitPos := (index + offset) % 8
+	p.NullBitMap[bytePos] |= 1 << bitPos
+}
+
+func (p *StmtExecute) Dump() []byte {
+	var payload bytes.Buffer
+	payload.WriteByte(p.ComStmtExecute)
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.StmtId), 4))
+	payload.WriteByte(p.Flags)
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.IterationCount), 4))
+
+	if p.NullBitMap != nil {
+		payload.Write(p.NullBitMap)
+		payload.WriteByte(p.NewParamsBoundFlag)
+	}
+
+	if p.NewParamsBoundFlag == 1 {
+		payload.Write(p.ParamType)
+		payload.Write(p.ParamValue)
+	}
+
+	p.Length = uint32(payload.Len())
+
+	dump := make([]byte, 3+1+p.Length)
+	copy(dump, p.Header.Dump())
+	copy(dump[4:], payload.Bytes())
+
+	return dump
 }

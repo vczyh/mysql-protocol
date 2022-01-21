@@ -15,10 +15,13 @@ type Conn struct {
 	user     string
 	password string
 
-	clientCapabilityFlags uint32
+	capabilities uint32
 
 	subConn
-	sequence uint8
+	sequence     uint8
+	affectedRows uint64
+	lastInsertId uint64
+	status       uint16
 }
 
 func CreateConnection(opts ...Option) (*Conn, error) {
@@ -82,7 +85,7 @@ func (c *Conn) handshakeResponse(handshake *connection.Handshake) error {
 	p.AddAttribute("_client_version", "1.0.2")
 	p.AddAttribute("program_name", "mycli")
 
-	c.clientCapabilityFlags = p.ClientCapabilityFlags
+	c.capabilities = p.ClientCapabilityFlags
 	return c.writePacket(&p)
 }
 
@@ -128,8 +131,14 @@ func (c *Conn) readUntilEOFPacket() error {
 		switch {
 		case generic.IsErr(data):
 			return c.handleOKErrPacket(data)
+
 		case generic.IsEOF(data):
 			// TODO status
+			eofPkt, err := generic.ParseEOF(data, c.capabilities)
+			if err != nil {
+				return err
+			}
+			c.status = eofPkt.StatusFlags // todo test
 			return nil
 		}
 	}
@@ -146,15 +155,24 @@ func (c *Conn) writePacket(packet generic.Packet) error {
 func (c *Conn) handleOKErrPacket(data []byte) error {
 	switch {
 	case generic.IsOK(data):
-		_, err := generic.ParseOk(data, c.clientCapabilityFlags)
-		// TODO assign c value
-		return err
+		okPkt, err := generic.ParseOk(data, c.capabilities)
+		if err != nil {
+			return err
+		}
+
+		c.affectedRows = okPkt.AffectedRows
+		c.lastInsertId = okPkt.LastInsertId
+		c.status = okPkt.StatusFlags // todo test
+
+		return nil
+
 	case generic.IsErr(data):
-		errPkt, err := generic.ParseERR(data, c.clientCapabilityFlags)
+		errPkt, err := generic.ParseERR(data, c.capabilities)
 		if err != nil {
 			return err
 		}
 		return errPkt
+
 	default:
 		return generic.ErrPacketData
 	}

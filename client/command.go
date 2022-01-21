@@ -62,11 +62,14 @@ func (c *Conn) Query(query string) (*ResultSet, error) {
 	switch {
 	case generic.IsOK(data):
 		return &ResultSet{}, nil
+
 	case generic.IsErr(data):
 		return nil, c.handleOKErrPacket(data)
-	case generic.IsLocalInfileRequest(data)z:
+
+	case generic.IsLocalInfileRequest(data):
 		// TODO implement
 		return nil, fmt.Errorf("unsupported LOCAL INFILE Request")
+
 	default:
 		return c.handleResultSet(data)
 	}
@@ -212,6 +215,9 @@ func (c *Conn) Prepare(query string) (driver.Stmt, error) {
 		return nil, err
 	}
 
+	// TODO
+	fmt.Println(hex.Dump(data))
+
 	switch {
 	case generic.IsErr(data):
 		return nil, c.handleOKErrPacket(data)
@@ -220,6 +226,9 @@ func (c *Conn) Prepare(query string) (driver.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		// TODO
+		fmt.Println("paramCount:", pkt.ParamCount)
+		fmt.Println("columnCount:", pkt.ColumnCount)
 
 		if pkt.ParamCount > 0 {
 			if err := c.readUntilEOFPacket(); err != nil {
@@ -235,6 +244,7 @@ func (c *Conn) Prepare(query string) (driver.Stmt, error) {
 
 		stmt := &Stmt{
 			conn: c,
+			id:   pkt.StmtId,
 		}
 		return stmt, nil
 	}
@@ -259,7 +269,7 @@ func (c *Conn) handleResultSet(data []byte) (*ResultSet, error) {
 	}
 
 	// EOF TODO deprecated
-	if data, err = c.readPacket(); err != nil {
+	if _, err = c.readPacket(); err != nil {
 		return nil, err
 	}
 
@@ -281,6 +291,79 @@ func (c *Conn) handleResultSet(data []byte) (*ResultSet, error) {
 			rs.Rows = append(rs.Rows, resultSetRowPkt.GetValues())
 		}
 	}
+}
+
+func (c *Conn) getResult() error {
+	for c.status&generic.SERVER_MORE_RESULTS_EXISTS != 0 {
+		columnCount, err := c.readExecuteResponseFirstPacket()
+		if err != nil {
+			return nil
+		}
+
+		if columnCount > 0 {
+			if err := c.readUntilEOFPacket(); err != nil {
+				return err
+			}
+
+			if err := c.readUntilEOFPacket(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Conn) readExecuteResponseFirstPacket() (int, error) {
+	data, err := c.readPacket()
+	if err != nil {
+		return 0, err
+	}
+
+	switch {
+	case generic.IsOK(data) || generic.IsErr(data):
+		return 0, c.handleOKErrPacket(data)
+
+	case generic.IsLocalInfileRequest(data):
+		// TODO
+		return 0, fmt.Errorf("unsupported LOCAL INFILE Request")
+
+	default:
+		columnCount, err := command.ParseQueryResponse(data)
+		if err != nil {
+			return 0, err
+		}
+		return int(columnCount), nil
+	}
+}
+
+func (c *Conn) readColumns(count int) ([]*command.ColumnDefinition, error) {
+	columns := make([]*command.ColumnDefinition, count)
+
+	for i := 0; i < count; i++ {
+		data, err := c.readPacket()
+		if err != nil {
+			return nil, err
+		}
+
+		columnDefPkt, err := command.ParseColumnDefinition(data)
+		if err != nil {
+			return nil, err
+		}
+
+		//columns[i].name = string(columnDefPkt.Name)
+		//columns[i].length = columnDefPkt.ColumnLength
+		//columns[i].columnType = command.TableColumnType(columnDefPkt.ColumnType)
+		//columns[i].flags = generic.ColumnDefinitionFlag(columnDefPkt.Flags)
+		columns[i] = columnDefPkt
+		// TODO
+	}
+
+	// EOF TODO deprecated
+	if _, err := c.readPacket(); err != nil {
+		return nil, err
+	}
+
+	return columns, nil
 }
 
 func (c *Conn) writeCommandPacket(pkt generic.Packet) error {

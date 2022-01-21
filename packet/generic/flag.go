@@ -47,3 +47,21 @@ const (
 	CLIENT_SESSION_TRACK                  = 0x00800000
 	CLIENT_DEPRECATE_EOF                  = 0x01000000
 )
+
+type ColumnDefinitionFlag uint16
+
+// Column Definition Flags: https://dev.mysql.com/doc/dev/mysql-server/latest/group__group__cs__column__definition__flags.html
+const (
+	NOT_NULL_FLAG ColumnDefinitionFlag = 1 << iota
+	PRI_KEY_FLAG
+	UNIQUE_KEY_FLAG
+	MULTIPLE_KEY_FLAG
+	BLOB_FLAG
+	UNSIGNED_FLAG
+	ZEROFILL_FLAG
+	BINARY_FLAG
+	ENUM_FLAG
+	AUTO_INCREMENT_FLAG
+	TIMESTAMP_FLAG
+	SET_FLAG
+)
