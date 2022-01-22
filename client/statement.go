@@ -80,10 +80,11 @@ func (stmt *Stmt) Query(args []driver.Value) (driver.Rows, error) {
 		return nil, err
 	}
 
-	rows := &rows{conn: stmt.conn}
+	rows := new(binaryRows)
+	rows.conn = stmt.conn
+
 	if columnCount > 0 {
 		rows.columns, err = stmt.conn.readColumns(columnCount)
-		fmt.Println("column len", len(rows.columns)) // TODO
 	} else {
 		// TODO done variable
 		// TODO 没有column 可能是update语句等
@@ -106,12 +107,6 @@ func (stmt *Stmt) writeExecutePacket(args []driver.Value) (err error) {
 		pkt.CreateNullBitMap(n, offset)
 
 		for i, arg := range args {
-			//if arg == nil {
-			//	bytePos := (i + offset) / 8
-			//	bitPos := (i + offset) % 8
-			//	nullBitMap[bytePos] |= 1 << bitPos
-			//}
-
 			switch v := arg.(type) {
 			case nil:
 				pkt.NullBitMapSet(n, i, offset)
@@ -147,7 +142,6 @@ func (stmt *Stmt) writeExecutePacket(args []driver.Value) (err error) {
 				pkt.ParamValue = append(pkt.ParamValue, v...)
 
 			case string:
-				fmt.Println("string") // TODO
 				// TODO long data
 				pkt.ParamType = append(pkt.ParamType, byte(command.MYSQL_TYPE_STRING), 0x00)
 				pkt.ParamValue = append(pkt.ParamValue, types.LengthEncodedString.Dump([]byte(v))...)

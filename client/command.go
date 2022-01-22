@@ -35,44 +35,41 @@ func (c *Conn) InitDB(db string) error {
 	return c.readOKErrPacket()
 }
 
-type ResultSet struct {
-	Columns []*command.ColumnDefinition
-	Rows    [][]*command.Value
-}
+//type ResultSet struct {
+//	Columns []*command.ColumnDefinition
+//	Rows    [][]*command.Value
+//}
 
-func (rs *ResultSet) ColumnNames() (columns []string) {
-	for _, column := range rs.Columns {
-		columns = append(columns, string(column.Name))
-	}
-	return columns
-}
+//func (rs *ResultSet) ColumnNames() (columns []string) {
+//	for _, column := range rs.Columns {
+//		columns = append(columns, string(column.Name))
+//	}
+//	return columns
+//}
 
 // Query is implement of the COM_QUERY
-func (c *Conn) Query(query string) (*ResultSet, error) {
+func (c *Conn) Query(query string) (driver.Rows, error) {
 	pkt := command.NewQuery(query)
 	if err := c.writeCommandPacket(pkt); err != nil {
 		return nil, err
 	}
 
-	data, err := c.readPacket()
+	columnCount, err := c.readExecuteResponseFirstPacket()
 	if err != nil {
 		return nil, err
 	}
 
-	switch {
-	case generic.IsOK(data):
-		return &ResultSet{}, nil
+	rows := new(textRows)
+	rows.conn = c
 
-	case generic.IsErr(data):
-		return nil, c.handleOKErrPacket(data)
-
-	case generic.IsLocalInfileRequest(data):
-		// TODO implement
-		return nil, fmt.Errorf("unsupported LOCAL INFILE Request")
-
-	default:
-		return c.handleResultSet(data)
+	if columnCount > 0 {
+		rows.columns, err = c.readColumns(columnCount)
+	} else {
+		// TODO done variable
+		// TODO 没有column 可能是update语句等
 	}
+
+	return rows, nil
 }
 
 // TODO MySQL 8.0.27 not work
@@ -250,48 +247,48 @@ func (c *Conn) Prepare(query string) (driver.Stmt, error) {
 	}
 }
 
-func (c *Conn) handleResultSet(data []byte) (*ResultSet, error) {
-	columnCount, err := command.ParseQueryResponse(data)
-	if err != nil {
-		return nil, err
-	}
-
-	rs := new(ResultSet)
-	for i := 0; i < int(columnCount); i++ {
-		if data, err = c.readPacket(); err != nil {
-			return nil, err
-		}
-		columnDefPkt, err := command.ParseColumnDefinition(data)
-		if err != nil {
-			return nil, err
-		}
-		rs.Columns = append(rs.Columns, columnDefPkt)
-	}
-
-	// EOF TODO deprecated
-	if _, err = c.readPacket(); err != nil {
-		return nil, err
-	}
-
-	for {
-		if data, err = c.readPacket(); err != nil {
-			return nil, err
-		}
-		switch {
-		case generic.IsErr(data):
-			return nil, c.handleOKErrPacket(data)
-		// TODO EOF deprecated
-		case generic.IsEOF(data):
-			return rs, nil
-		default:
-			resultSetRowPkt, err := command.ParseTextResultSetRow(data)
-			if err != nil {
-				return nil, err
-			}
-			rs.Rows = append(rs.Rows, resultSetRowPkt.GetValues())
-		}
-	}
-}
+//func (c *Conn) handleResultSet(data []byte) (*ResultSet, error) {
+//	columnCount, err := command.ParseQueryResponse(data)
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	rs := new(ResultSet)
+//	for i := 0; i < int(columnCount); i++ {
+//		if data, err = c.readPacket(); err != nil {
+//			return nil, err
+//		}
+//		columnDefPkt, err := command.ParseColumnDefinition(data)
+//		if err != nil {
+//			return nil, err
+//		}
+//		rs.Columns = append(rs.Columns, columnDefPkt)
+//	}
+//
+//	// EOF TODO deprecated
+//	if _, err = c.readPacket(); err != nil {
+//		return nil, err
+//	}
+//
+//	for {
+//		if data, err = c.readPacket(); err != nil {
+//			return nil, err
+//		}
+//		switch {
+//		case generic.IsErr(data):
+//			return nil, c.handleOKErrPacket(data)
+//		// TODO EOF deprecated
+//		case generic.IsEOF(data):
+//			return rs, nil
+//		default:
+//			resultSetRowPkt, err := command.ParseTextResultSetRow(data)
+//			if err != nil {
+//				return nil, err
+//			}
+//			rs.Rows = append(rs.Rows, resultSetRowPkt.GetValues())
+//		}
+//	}
+//}
 
 func (c *Conn) getResult() error {
 	for c.status&generic.SERVER_MORE_RESULTS_EXISTS != 0 {

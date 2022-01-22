@@ -190,7 +190,7 @@ func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
 
 type TextResultSetRow struct {
 	generic.Header
-	ColumnValues [][]byte
+	Values []*textColumnValue
 }
 
 func ParseTextResultSetRow(bs []byte) (*TextResultSetRow, error) {
@@ -204,8 +204,8 @@ func ParseTextResultSetRow(bs []byte) (*TextResultSetRow, error) {
 
 	for buf.Len() > 0 {
 		rowData := buf.Bytes()
+		var columnVal *textColumnValue
 		if val := rowData[0]; val == 0xfb {
-			p.ColumnValues = append(p.ColumnValues, []byte{val})
 			buf = bytes.NewBuffer(rowData[1:])
 		} else {
 			buf = bytes.NewBuffer(rowData)
@@ -213,38 +213,26 @@ func ParseTextResultSetRow(bs []byte) (*TextResultSetRow, error) {
 			if err != nil {
 				return nil, generic.ErrPacketData
 			}
-			p.ColumnValues = append(p.ColumnValues, val)
+			v := textColumnValue(val)
+			columnVal = &v
 		}
+		p.Values = append(p.Values, columnVal)
 	}
 
 	return &p, nil
 }
 
-type Value string
+type textColumnValue string
 
-func (v *Value) IsNull() bool {
+func (v *textColumnValue) IsNull() bool {
 	return v == nil
 }
 
-func (v *Value) String() string {
+func (v *textColumnValue) String() string {
 	if v.IsNull() {
 		return "<null>"
 	}
 	return string(*v)
-}
-
-func (p *TextResultSetRow) GetValues() (values []*Value) {
-	for _, columnVal := range p.ColumnValues {
-		var val *Value
-		if len(columnVal) == 1 && columnVal[0] == 0xfb {
-			// Null
-		} else {
-			v := Value(columnVal)
-			val = &v
-		}
-		values = append(values, val)
-	}
-	return values
 }
 
 type BinaryResultSetRow struct {
