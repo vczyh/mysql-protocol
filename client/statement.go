@@ -70,7 +70,6 @@ func (stmt *Stmt) Exec(args []driver.Value) (driver.Result, error) {
 
 func (stmt *Stmt) Query(args []driver.Value) (driver.Rows, error) {
 	// TODO handle case: stmt has been closed
-
 	if err := stmt.writeExecutePacket(args); err != nil {
 		return nil, err
 	}
@@ -86,7 +85,7 @@ func (stmt *Stmt) Query(args []driver.Value) (driver.Rows, error) {
 	if columnCount > 0 {
 		rows.columns, err = stmt.conn.readColumns(columnCount)
 	} else {
-		// TODO done variable
+		// TODO done variable 说明已经执行完
 		// TODO 没有column 可能是update语句等
 	}
 	return rows, nil

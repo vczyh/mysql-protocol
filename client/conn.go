@@ -39,11 +39,17 @@ func CreateConnection(opts ...Option) (*Conn, error) {
 	return &c, c.dial()
 }
 
+func (c *Conn) Close() error {
+	_ = c.Quit()
+	return c.subConn.close()
+}
+
 func (c *Conn) dial() error {
 	handshake, err := c.handshake()
 	if err != nil {
 		return err
 	}
+
 	if err := c.handshakeResponse(handshake); err != nil {
 		return err
 	}

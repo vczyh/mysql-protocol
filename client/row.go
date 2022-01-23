@@ -5,13 +5,13 @@ import (
 	"io"
 	"mysql-protocol/packet/command"
 	"mysql-protocol/packet/generic"
-	"time"
 )
 
 type resultSet struct {
 	conn        *Conn
 	columns     []*command.ColumnDefinition
 	columnNames []string
+	done        bool
 }
 
 func (rs *resultSet) Columns() []string {
@@ -30,28 +30,25 @@ func (rs *resultSet) Columns() []string {
 }
 
 func (rs *resultSet) Close() error {
-	//TODO implement me
-	panic("implement me")
+	if rs.done {
+		return nil
+	}
+
+	err := rs.conn.readUntilEOFPacket()
+	if err != nil {
+		return err
+	}
+
+	if err := rs.conn.getResult(); err != nil {
+		return err
+	}
+	rs.done = true
+	return nil
 }
 
 type binaryRows struct {
 	resultSet
 }
-
-//func (r *binaryRows) Columns() []string {
-//	if r.columnNames != nil {
-//		return r.columnNames
-//	}
-//
-//	names := make([]string, len(r.columns))
-//	// TODO ColumnsWithAlias
-//	for i := range r.columns {
-//		names[i] = string(r.columns[i].Name)
-//	}
-//
-//	r.columnNames = names
-//	return r.columnNames
-//}
 
 func (r *binaryRows) Next(dest []driver.Value) error {
 	data, err := r.conn.readPacket()
@@ -59,12 +56,25 @@ func (r *binaryRows) Next(dest []driver.Value) error {
 		return err
 	}
 
-	rowPkt, err := command.ParseBinaryResultSetRow(data, len(dest))
-	if err != nil {
-		return err
+	switch {
+	case generic.IsErr(data):
+		return r.conn.handleOKErrPacket(data)
+
+	case generic.IsEOF(data):
+		r.done = true
+		return io.EOF
+
+	default:
+		rowPkt, err := command.ParseBinaryResultSetRow(data, r.columns)
+		if err != nil {
+			return err
+		}
+		// TODO location
+		for i := range dest {
+			dest[i] = rowPkt.Values[i].Value()
+		}
 	}
-	// TODO location
-	return rowPkt.Convert(dest, r.columns, time.Local)
+	return nil
 }
 
 type textRows struct {
@@ -82,10 +92,11 @@ func (r *textRows) Next(dest []driver.Value) error {
 		return r.conn.handleOKErrPacket(data)
 
 	case generic.IsEOF(data):
+		r.done = true
 		return io.EOF
 
 	default:
-		rowPkt, err := command.ParseTextResultSetRow(data)
+		rowPkt, err := command.ParseTextResultSetRow(data, r.columns)
 		if err != nil {
 			return err
 		}
@@ -95,7 +106,7 @@ func (r *textRows) Next(dest []driver.Value) error {
 			if val.IsNull() {
 				dest[i] = nil
 			} else {
-				dest[i] = val.String()
+				dest[i] = val.Value()
 			}
 		}
 		return nil

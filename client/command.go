@@ -18,12 +18,9 @@ func (c *Conn) Quit() error {
 	data, err := c.readPacket()
 	// response is either a connection close or a OK_Packet
 	if err == nil && generic.IsOK(data) {
-		_ = c.subConn.conn.Close()
 		return nil
 	}
-
-	_ = c.subConn.conn.Close()
-	return nil
+	return err
 }
 
 // InitDB is implement of the COM_QUIT
@@ -133,23 +130,23 @@ func (c *Conn) Statistics() (string, error) {
 }
 
 // TODO MySQL 8.0.27 not work
-func (c *Conn) ProcessInfo() (*ResultSet, error) {
-	pkt := command.NewProcessInfo()
-	if err := c.writeCommandPacket(pkt); err != nil {
-		return nil, err
-	}
-
-	data, err := c.readPacket()
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case generic.IsErr(data):
-		return nil, c.handleOKErrPacket(data)
-	default:
-		return c.handleResultSet(data)
-	}
-}
+//func (c *Conn) ProcessInfo() (*ResultSet, error) {
+//	pkt := command.NewProcessInfo()
+//	if err := c.writeCommandPacket(pkt); err != nil {
+//		return nil, err
+//	}
+//
+//	data, err := c.readPacket()
+//	if err != nil {
+//		return nil, err
+//	}
+//	switch {
+//	case generic.IsErr(data):
+//		return nil, c.handleOKErrPacket(data)
+//	default:
+//		return c.handleResultSet(data)
+//	}
+//}
 
 // ProcessKill is implement of the COM_PROCESS_KILL
 func (c *Conn) ProcessKill(connectionId int) error {
@@ -240,8 +237,9 @@ func (c *Conn) Prepare(query string) (driver.Stmt, error) {
 		}
 
 		stmt := &Stmt{
-			conn: c,
-			id:   pkt.StmtId,
+			conn:       c,
+			id:         pkt.StmtId,
+			paramCount: int(pkt.ParamCount),
 		}
 		return stmt, nil
 	}

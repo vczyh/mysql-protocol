@@ -80,7 +80,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 func (c *Conn) writeAuthSwitchResponsePacket(plugin connection.AuthenticationPlugin, authData []byte) (err error) {
 	encryptedPassword, err := connection.EncryptPassword(plugin, []byte(c.password), authData)
 	authRes := connection.NewAuthSwitchResponse(encryptedPassword)
-	return c.writeCommandPacket(authRes)
+	return c.writePacket(authRes)
 
 	//var switchResPkt connection.AuthSwitchResponse
 	//switchResPkt.AuthRes, err = connection.EncryptPassword(plugin, []byte(c.password), authData)

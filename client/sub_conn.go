@@ -18,3 +18,7 @@ func (c *subConn) Next(n int) ([]byte, error) {
 func (c *subConn) Write(data []byte) (int, error) {
 	return c.conn.Write(data)
 }
+
+func (c *subConn) close() error {
+	return c.conn.Close()
+}

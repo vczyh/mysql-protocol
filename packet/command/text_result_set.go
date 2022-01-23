@@ -2,7 +2,6 @@ package command
 
 import (
 	"bytes"
-	"database/sql/driver"
 	"fmt"
 	"math"
 	"mysql-protocol/packet/generic"
@@ -190,49 +189,72 @@ func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
 
 type TextResultSetRow struct {
 	generic.Header
-	Values []*textColumnValue
+	Values []columnValue
 }
 
-func ParseTextResultSetRow(bs []byte) (*TextResultSetRow, error) {
+func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition) (*TextResultSetRow, error) {
 	var p TextResultSetRow
 	var err error
 
-	buf := bytes.NewBuffer(bs)
+	buf := bytes.NewBuffer(data)
 	if err = p.Header.Parse(buf); err != nil {
 		return nil, err
 	}
 
-	for buf.Len() > 0 {
-		rowData := buf.Bytes()
-		var columnVal *textColumnValue
-		if val := rowData[0]; val == 0xfb {
-			buf = bytes.NewBuffer(rowData[1:])
+	p.Values = make([]columnValue, len(columns))
+	rowData, pos := buf.Bytes(), 0
+
+	for i := range columns {
+		// TODO
+		cv := columnValue{mysqlType: TableColumnType(columns[i].ColumnType)}
+		if rowData[pos] == 0xfb {
+			cv.isNull = true
+			pos++
 		} else {
-			buf = bytes.NewBuffer(rowData)
-			val, err := types.LengthEncodedString.Get(buf)
+			buf = bytes.NewBuffer(rowData[pos:])
+			befLen := buf.Len()
+			cv.value, err = types.LengthEncodedString.Get(buf)
 			if err != nil {
 				return nil, generic.ErrPacketData
 			}
-			v := textColumnValue(val)
-			columnVal = &v
+			pos += befLen - buf.Len()
+			rowData = buf.Bytes()
 		}
-		p.Values = append(p.Values, columnVal)
+		p.Values[i] = cv
 	}
 
 	return &p, nil
 }
 
-type textColumnValue string
+//type textColumnValue string
+//
+//func (v *textColumnValue) IsNull() bool {
+//	return v == nil
+//}
+//
+//func (v *textColumnValue) String() string {
+//	if v.IsNull() {
+//		return "<null>"
+//	}
+//	return string(*v)
+//}
 
-func (v *textColumnValue) IsNull() bool {
-	return v == nil
+type columnValue struct {
+	isNull    bool
+	value     interface{}
+	mysqlType TableColumnType
 }
 
-func (v *textColumnValue) String() string {
-	if v.IsNull() {
-		return "<null>"
-	}
-	return string(*v)
+func (v *columnValue) IsNull() bool {
+	return v.isNull
+}
+
+func (v *columnValue) Value() interface{} {
+	return v.value
+}
+
+func (v *columnValue) String() string {
+	return ""
 }
 
 type BinaryResultSetRow struct {
@@ -240,10 +262,10 @@ type BinaryResultSetRow struct {
 
 	PktHeader  byte
 	NullBitMap []byte
-	Values     []byte
+	Values     []columnValue
 }
 
-func ParseBinaryResultSetRow(data []byte, columnCount int) (*BinaryResultSetRow, error) {
+func ParseBinaryResultSetRow(data []byte, columns []*ColumnDefinition) (*BinaryResultSetRow, error) {
 	var p BinaryResultSetRow
 	var err error
 
@@ -256,10 +278,145 @@ func ParseBinaryResultSetRow(data []byte, columnCount int) (*BinaryResultSetRow,
 		return nil, err
 	}
 
+	columnCount := len(columns)
 	nullBitMapLen := (columnCount + 7 + 2) >> 3
 	p.NullBitMap = buf.Next(nullBitMapLen)
 
-	p.Values = buf.Bytes()
+	p.Values = make([]columnValue, columnCount)
+	for i := range columns {
+		// TODO convert
+		cv := columnValue{mysqlType: TableColumnType(columns[i].ColumnType)}
+
+		if p.NullBitMapGet(columnCount, i) {
+			cv.isNull = true
+			continue
+		}
+
+		flags := generic.ColumnDefinitionFlag(columns[i].Flags)
+		columnType := TableColumnType(columns[i].ColumnType)
+		switch columnType {
+		// TODO decimal type
+		case MYSQL_TYPE_TINY:
+			val := types.FixedLengthInteger.Get(buf.Next(1))
+			if flags&generic.UNSIGNED_FLAG != 0 {
+				cv.value = uint8(val)
+			} else {
+				cv.value = int8(val)
+			}
+
+		case MYSQL_TYPE_SHORT, MYSQL_TYPE_YEAR:
+			val := types.FixedLengthInteger.Get(buf.Next(2))
+			if flags&generic.UNSIGNED_FLAG != 0 {
+				cv.value = uint16(val)
+			} else {
+				cv.value = int16(val)
+			}
+
+		case MYSQL_TYPE_INT24, MYSQL_TYPE_LONG:
+			val := types.FixedLengthInteger.Get(buf.Next(4))
+			if flags&generic.UNSIGNED_FLAG != 0 {
+				cv.value = uint32(val)
+			} else {
+				cv.value = int32(val)
+			}
+
+		case MYSQL_TYPE_LONGLONG:
+			val := types.FixedLengthInteger.Get(buf.Next(8))
+			if flags&generic.UNSIGNED_FLAG != 0 {
+				cv.value = val
+			} else {
+				cv.value = int64(val)
+			}
+
+		case MYSQL_TYPE_FLOAT:
+			cv.value = math.Float32frombits(uint32(types.FixedLengthInteger.Get(buf.Next(4))))
+
+		case MYSQL_TYPE_DOUBLE:
+			cv.value = math.Float64frombits(types.FixedLengthInteger.Get(buf.Next(8)))
+
+		case MYSQL_TYPE_VARCHAR,
+			MYSQL_TYPE_BIT,
+			MYSQL_TYPE_ENUM,
+			MYSQL_TYPE_SET,
+			MYSQL_TYPE_TINY_BLOB, MYSQL_TYPE_MEDIUM_BLOB, MYSQL_TYPE_LONG_BLOB, MYSQL_TYPE_BLOB,
+			MYSQL_TYPE_VAR_STRING, MYSQL_TYPE_STRING:
+			data, err := types.LengthEncodedString.Get(buf)
+			if err != nil {
+				return nil, err
+			}
+			cv.value = data
+
+		case MYSQL_TYPE_DATE, MYSQL_TYPE_DATETIME, MYSQL_TYPE_TIMESTAMP:
+			dataLen := types.FixedLengthInteger.Get(buf.Next(1))
+			if dataLen == 0 {
+				cv.value = time.Time{}
+				continue
+			}
+
+			switch dataLen {
+			case 0:
+				cv.value = time.Time{}
+			case 4:
+				cv.value = time.Date(
+					int(types.FixedLengthInteger.Get(buf.Next(2))),
+					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					0, 0, 0, 0, time.Local)
+			case 7:
+				// TODO loc
+				cv.value = time.Date(
+					int(types.FixedLengthInteger.Get(buf.Next(2))),
+					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					0, time.Local)
+			case 11:
+				cv.value = time.Date(
+					int(types.FixedLengthInteger.Get(buf.Next(2))),
+					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					int(types.FixedLengthInteger.Get(buf.Next(1))),
+					int(types.FixedLengthInteger.Get(buf.Next(4)))*1000,
+					time.Local)
+			}
+
+		case MYSQL_TYPE_TIME:
+			dataLen := types.FixedLengthInteger.Get(buf.Next(1))
+			if dataLen == 0 {
+				cv.value = time.Time{}
+				continue
+			}
+
+			isNegative := int(types.FixedLengthInteger.Get(buf.Next(1)))
+			day := int(types.FixedLengthInteger.Get(buf.Next(4)))
+			hour := int(types.FixedLengthInteger.Get(buf.Next(1)))
+			min := int(types.FixedLengthInteger.Get(buf.Next(1)))
+			sec := int(types.FixedLengthInteger.Get(buf.Next(1)))
+
+			var microSec int
+			if dataLen == 12 {
+				microSec = int(types.FixedLengthInteger.Get(buf.Next(4)))
+			}
+
+			now := time.Now()
+			t := time.Date(now.Year(), now.Month(), now.Day(), hour, min, sec, microSec*1000, time.Local)
+
+			var days = day
+			if isNegative == 1 {
+				days = -day
+			}
+			cv.value = t.AddDate(0, 0, days)
+
+		default:
+			return nil, fmt.Errorf("not supported mysql type: %s", columnType)
+		}
+
+		p.Values[i] = cv
+	}
 
 	return &p, nil
 }
@@ -275,125 +432,125 @@ func (p *BinaryResultSetRow) NullBitMapGet(columnCount, index int) bool {
 }
 
 // Convert https://dev.mysql.com/doc/internals/en/binary-protocol-value.html
-func (p *BinaryResultSetRow) Convert(dest []driver.Value, columns []*ColumnDefinition, loc *time.Location) error {
-	buf := bytes.NewBuffer(p.Values)
-
-	for i := range dest {
-		if p.NullBitMapGet(len(dest), i) {
-			dest[i] = nil
-			continue
-		}
-
-		flags := generic.ColumnDefinitionFlag(columns[i].Flags)
-		columnType := TableColumnType(columns[i].ColumnType)
-		switch columnType {
-		case MYSQL_TYPE_TINY:
-			val := types.FixedLengthInteger.Get(buf.Next(1))
-			if flags&generic.UNSIGNED_FLAG != 0 {
-				dest[i] = uint8(val)
-			} else {
-				dest[i] = int8(val)
-			}
-
-		case MYSQL_TYPE_SHORT, MYSQL_TYPE_YEAR:
-			val := types.FixedLengthInteger.Get(buf.Next(2))
-			if flags&generic.UNSIGNED_FLAG != 0 {
-				dest[i] = uint16(val)
-			} else {
-				dest[i] = int16(val)
-			}
-
-		case MYSQL_TYPE_INT24, MYSQL_TYPE_LONG:
-			val := types.FixedLengthInteger.Get(buf.Next(4))
-			if flags&generic.UNSIGNED_FLAG != 0 {
-				dest[i] = uint32(val)
-			} else {
-				dest[i] = int32(val)
-			}
-
-		case MYSQL_TYPE_LONGLONG:
-			val := types.FixedLengthInteger.Get(buf.Next(8))
-			if flags&generic.UNSIGNED_FLAG != 0 {
-				dest[i] = val
-			} else {
-				dest[i] = int64(val)
-			}
-
-		case MYSQL_TYPE_FLOAT:
-			dest[i] = math.Float32frombits(uint32(types.FixedLengthInteger.Get(buf.Next(4))))
-
-		case MYSQL_TYPE_DOUBLE:
-			dest[i] = math.Float64frombits(types.FixedLengthInteger.Get(buf.Next(8)))
-
-		case MYSQL_TYPE_VARCHAR,
-			MYSQL_TYPE_BIT,
-			MYSQL_TYPE_ENUM,
-			MYSQL_TYPE_SET,
-			MYSQL_TYPE_TINY_BLOB, MYSQL_TYPE_MEDIUM_BLOB, MYSQL_TYPE_LONG_BLOB, MYSQL_TYPE_BLOB,
-			MYSQL_TYPE_VAR_STRING, MYSQL_TYPE_STRING:
-			data, err := types.LengthEncodedString.Get(buf)
-			if err != nil {
-				return nil
-			}
-			dest[i] = data
-
-		case MYSQL_TYPE_DATE, MYSQL_TYPE_DATETIME, MYSQL_TYPE_TIMESTAMP:
-			dataLen := types.FixedLengthInteger.Get(buf.Next(1))
-			if dataLen == 0 {
-				dest[i] = time.Time{}
-				continue
-			}
-
-			switch dataLen {
-			case 0:
-				dest[i] = time.Time{}
-			case 4:
-				dest[i] = time.Date(
-					int(types.FixedLengthInteger.Get(buf.Next(2))),
-					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					0, 0, 0, 0, loc)
-			case 7:
-				dest[i] = time.Date(
-					int(types.FixedLengthInteger.Get(buf.Next(2))),
-					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					0, loc)
-			case 11:
-				dest[i] = time.Date(
-					int(types.FixedLengthInteger.Get(buf.Next(2))),
-					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					int(types.FixedLengthInteger.Get(buf.Next(1))),
-					int(types.FixedLengthInteger.Get(buf.Next(4)))*1000,
-					loc)
-			}
-
-		case MYSQL_TYPE_TIME:
-			dest[i] = time.Time{}
-		// TODO
-		//dataLen := types.FixedLengthInteger.Get(buf.Next(1))
-		//if dataLen == 0 {
-		//	dest[i] = time.Time{}
-		//	continue
-		//}
-		//
-		//switch dataLen {
-		//case 0:
-		//	dest[i] = time.Time{}
-		//case 8:
-		//
-		//}
-
-		default:
-			return fmt.Errorf("not supported mysql type: %s", columnType)
-		}
-	}
-
-	return nil
-}
+//func (p *BinaryResultSetRow) Convert(dest []driver.Value, columns []*ColumnDefinition, loc *time.Location) error {
+//	buf := bytes.NewBuffer(p.Values)
+//
+//	for i := range dest {
+//		if p.NullBitMapGet(len(dest), i) {
+//			dest[i] = nil
+//			continue
+//		}
+//
+//		flags := generic.ColumnDefinitionFlag(columns[i].Flags)
+//		columnType := TableColumnType(columns[i].ColumnType)
+//		switch columnType {
+//		case MYSQL_TYPE_TINY:
+//			val := types.FixedLengthInteger.Get(buf.Next(1))
+//			if flags&generic.UNSIGNED_FLAG != 0 {
+//				dest[i] = uint8(val)
+//			} else {
+//				dest[i] = int8(val)
+//			}
+//
+//		case MYSQL_TYPE_SHORT, MYSQL_TYPE_YEAR:
+//			val := types.FixedLengthInteger.Get(buf.Next(2))
+//			if flags&generic.UNSIGNED_FLAG != 0 {
+//				dest[i] = uint16(val)
+//			} else {
+//				dest[i] = int16(val)
+//			}
+//
+//		case MYSQL_TYPE_INT24, MYSQL_TYPE_LONG:
+//			val := types.FixedLengthInteger.Get(buf.Next(4))
+//			if flags&generic.UNSIGNED_FLAG != 0 {
+//				dest[i] = uint32(val)
+//			} else {
+//				dest[i] = int32(val)
+//			}
+//
+//		case MYSQL_TYPE_LONGLONG:
+//			val := types.FixedLengthInteger.Get(buf.Next(8))
+//			if flags&generic.UNSIGNED_FLAG != 0 {
+//				dest[i] = val
+//			} else {
+//				dest[i] = int64(val)
+//			}
+//
+//		case MYSQL_TYPE_FLOAT:
+//			dest[i] = math.Float32frombits(uint32(types.FixedLengthInteger.Get(buf.Next(4))))
+//
+//		case MYSQL_TYPE_DOUBLE:
+//			dest[i] = math.Float64frombits(types.FixedLengthInteger.Get(buf.Next(8)))
+//
+//		case MYSQL_TYPE_VARCHAR,
+//			MYSQL_TYPE_BIT,
+//			MYSQL_TYPE_ENUM,
+//			MYSQL_TYPE_SET,
+//			MYSQL_TYPE_TINY_BLOB, MYSQL_TYPE_MEDIUM_BLOB, MYSQL_TYPE_LONG_BLOB, MYSQL_TYPE_BLOB,
+//			MYSQL_TYPE_VAR_STRING, MYSQL_TYPE_STRING:
+//			data, err := types.LengthEncodedString.Get(buf)
+//			if err != nil {
+//				return nil
+//			}
+//			dest[i] = data
+//
+//		case MYSQL_TYPE_DATE, MYSQL_TYPE_DATETIME, MYSQL_TYPE_TIMESTAMP:
+//			dataLen := types.FixedLengthInteger.Get(buf.Next(1))
+//			if dataLen == 0 {
+//				dest[i] = time.Time{}
+//				continue
+//			}
+//
+//			switch dataLen {
+//			case 0:
+//				dest[i] = time.Time{}
+//			case 4:
+//				dest[i] = time.Date(
+//					int(types.FixedLengthInteger.Get(buf.Next(2))),
+//					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					0, 0, 0, 0, loc)
+//			case 7:
+//				dest[i] = time.Date(
+//					int(types.FixedLengthInteger.Get(buf.Next(2))),
+//					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					0, loc)
+//			case 11:
+//				dest[i] = time.Date(
+//					int(types.FixedLengthInteger.Get(buf.Next(2))),
+//					time.Month(int(types.FixedLengthInteger.Get(buf.Next(1)))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					int(types.FixedLengthInteger.Get(buf.Next(1))),
+//					int(types.FixedLengthInteger.Get(buf.Next(4)))*1000,
+//					loc)
+//			}
+//
+//		case MYSQL_TYPE_TIME:
+//			dest[i] = time.Time{}
+//		// TODO
+//		//dataLen := types.FixedLengthInteger.Get(buf.Next(1))
+//		//if dataLen == 0 {
+//		//	dest[i] = time.Time{}
+//		//	continue
+//		//}
+//		//
+//		//switch dataLen {
+//		//case 0:
+//		//	dest[i] = time.Time{}
+//		//case 8:
+//		//
+//		//}
+//
+//		default:
+//			return fmt.Errorf("not supported mysql type: %s", columnType)
+//		}
+//	}
+//
+//	return nil
+//}
