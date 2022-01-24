@@ -12,7 +12,7 @@ import (
 )
 
 func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) error {
-	data, err := c.readPacket()
+	data, err := c.ReadPacket()
 	if err != nil {
 		return err
 	}
@@ -20,7 +20,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 	var authSwitch bool
 	switch {
 	case generic.IsOK(data) || generic.IsErr(data):
-		return c.handleOKErrPacket(data)
+		return c.HandleOKErrPacket(data)
 	case generic.IsAuthSwitchRequest(data):
 		switchPkt, err := connection.ParseAuthSwitchRequest(data)
 		if err != nil {
@@ -36,14 +36,14 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 		if err = c.writeAuthSwitchResponsePacket(plugin, authData); err != nil {
 			return err
 		}
-		if data, err = c.readPacket(); err != nil {
+		if data, err = c.ReadPacket(); err != nil {
 			return err
 		}
 	}
 
 	switch {
 	case generic.IsOK(data) || generic.IsErr(data):
-		return c.handleOKErrPacket(data)
+		return c.HandleOKErrPacket(data)
 	case generic.IsAuthMoreData(data):
 		pluginData, err := connection.ParseAuthMoreData(data)
 		if err != nil {
@@ -56,7 +56,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 			switch pluginData[0] {
 			// fast authentication
 			case 0x03:
-				return c.readOKErrPacket()
+				return c.ReadOKErrPacket()
 			// full authentication
 			case 0x04:
 				// TODO if TLS
@@ -69,7 +69,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 				if err := c.writePasswordEncryptedWithPublicKeyPacket(pubKeyData, authData); err != nil {
 					return err
 				}
-				return c.readOKErrPacket()
+				return c.ReadOKErrPacket()
 			}
 		}
 	}
@@ -80,7 +80,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 func (c *Conn) writeAuthSwitchResponsePacket(plugin connection.AuthenticationPlugin, authData []byte) (err error) {
 	encryptedPassword, err := connection.EncryptPassword(plugin, []byte(c.password), authData)
 	authRes := connection.NewAuthSwitchResponse(encryptedPassword)
-	return c.writePacket(authRes)
+	return c.WritePacket(authRes)
 
 	//var switchResPkt connection.AuthSwitchResponse
 	//switchResPkt.AuthRes, err = connection.EncryptPassword(plugin, []byte(c.password), authData)
@@ -92,11 +92,11 @@ func (c *Conn) writeAuthSwitchResponsePacket(plugin connection.AuthenticationPlu
 
 func (c *Conn) requestPublicKey() ([]byte, error) {
 	simplePkt := generic.NewSimple([]byte{0x02})
-	if err := c.writePacket(simplePkt); err != nil {
+	if err := c.WritePacket(simplePkt); err != nil {
 		return nil, err
 	}
 
-	data, err := c.readPacket()
+	data, err := c.ReadPacket()
 	if err != nil {
 		return nil, err
 	}
@@ -132,5 +132,5 @@ func (c *Conn) writePasswordEncryptedWithPublicKeyPacket(data []byte, seed []byt
 	}
 
 	simplePkt := generic.NewSimple(encryptedPassword)
-	return c.writePacket(simplePkt)
+	return c.WritePacket(simplePkt)
 }

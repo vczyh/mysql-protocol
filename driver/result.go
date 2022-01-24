@@ -1,4 +1,4 @@
-package client
+package driver
 
 type result struct {
 	affectedRows int64

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"mysql-protocol/packet/command"
 	"mysql-protocol/packet/connection"
 	"mysql-protocol/packet/generic"
 	"net"
@@ -15,13 +16,13 @@ type Conn struct {
 	user     string
 	password string
 
-	capabilities uint32
-
 	subConn
-	sequence     uint8
-	affectedRows uint64
-	lastInsertId uint64
-	status       uint16
+	sequence uint8
+
+	Capabilities uint32
+	AffectedRows uint64
+	LastInsertId uint64
+	Status       uint16
 }
 
 func CreateConnection(opts ...Option) (*Conn, error) {
@@ -44,6 +45,30 @@ func (c *Conn) Close() error {
 	return c.subConn.close()
 }
 
+// Quit is implement of the COM_QUIT
+func (c *Conn) Quit() error {
+	pkt := command.NewQuit()
+	if err := c.WriteCommandPacket(pkt); err != nil {
+		return err
+	}
+
+	data, err := c.ReadPacket()
+	// response is either a connection close or a OK_Packet
+	if err == nil && generic.IsOK(data) {
+		return nil
+	}
+	return err
+}
+
+// Ping is implement of the COM_PING
+func (c *Conn) Ping() error {
+	pkt := command.NewPing()
+	if err := c.WriteCommandPacket(pkt); err != nil {
+		return err
+	}
+	return c.ReadOKErrPacket()
+}
+
 func (c *Conn) dial() error {
 	handshake, err := c.handshake()
 	if err != nil {
@@ -57,12 +82,12 @@ func (c *Conn) dial() error {
 }
 
 func (c *Conn) handshake() (*connection.Handshake, error) {
-	data, err := c.readPacket()
+	data, err := c.ReadPacket()
 	if err != nil {
 		return nil, err
 	}
 	if generic.IsErr(data) {
-		return nil, c.handleOKErrPacket(data)
+		return nil, c.HandleOKErrPacket(data)
 	}
 	return connection.ParseHandshake(data)
 }
@@ -91,11 +116,11 @@ func (c *Conn) handshakeResponse(handshake *connection.Handshake) error {
 	p.AddAttribute("_client_version", "1.0.2")
 	p.AddAttribute("program_name", "mycli")
 
-	c.capabilities = p.ClientCapabilityFlags
-	return c.writePacket(&p)
+	c.Capabilities = p.ClientCapabilityFlags
+	return c.WritePacket(&p)
 }
 
-func (c *Conn) readPacket() ([]byte, error) {
+func (c *Conn) ReadPacket() ([]byte, error) {
 	// payload length
 	lenData, err := c.Next(3)
 	if err != nil {
@@ -127,30 +152,30 @@ func (c *Conn) readPacket() ([]byte, error) {
 	return packetData, nil
 }
 
-func (c *Conn) readUntilEOFPacket() error {
+func (c *Conn) ReadUntilEOFPacket() error {
 	for {
-		data, err := c.readPacket()
+		data, err := c.ReadPacket()
 		if err != nil {
 			return err
 		}
 
 		switch {
 		case generic.IsErr(data):
-			return c.handleOKErrPacket(data)
+			return c.HandleOKErrPacket(data)
 
 		case generic.IsEOF(data):
 			// TODO status
-			eofPkt, err := generic.ParseEOF(data, c.capabilities)
+			eofPkt, err := generic.ParseEOF(data, c.Capabilities)
 			if err != nil {
 				return err
 			}
-			c.status = eofPkt.StatusFlags // todo test
+			c.Status = eofPkt.StatusFlags // todo test
 			return nil
 		}
 	}
 }
 
-func (c *Conn) writePacket(packet generic.Packet) error {
+func (c *Conn) WritePacket(packet generic.Packet) error {
 	c.sequence++
 	packet.SetSequence(int(c.sequence))
 	fmt.Println(hex.Dump(packet.Dump())) // todo
@@ -158,22 +183,30 @@ func (c *Conn) writePacket(packet generic.Packet) error {
 	return err
 }
 
-func (c *Conn) handleOKErrPacket(data []byte) error {
+func (c *Conn) WriteCommandPacket(pkt generic.Packet) error {
+	c.sequence = 0
+	pkt.SetSequence(int(c.sequence))
+	fmt.Println(hex.Dump(pkt.Dump())) // todo
+	_, err := c.subConn.Write(pkt.Dump())
+	return err
+}
+
+func (c *Conn) HandleOKErrPacket(data []byte) error {
 	switch {
 	case generic.IsOK(data):
-		okPkt, err := generic.ParseOk(data, c.capabilities)
+		okPkt, err := generic.ParseOk(data, c.Capabilities)
 		if err != nil {
 			return err
 		}
 
-		c.affectedRows = okPkt.AffectedRows
-		c.lastInsertId = okPkt.LastInsertId
-		c.status = okPkt.StatusFlags // todo test
+		c.AffectedRows = okPkt.AffectedRows
+		c.LastInsertId = okPkt.LastInsertId
+		c.Status = okPkt.StatusFlags // todo test
 
 		return nil
 
 	case generic.IsErr(data):
-		errPkt, err := generic.ParseERR(data, c.capabilities)
+		errPkt, err := generic.ParseERR(data, c.Capabilities)
 		if err != nil {
 			return err
 		}
@@ -184,13 +217,13 @@ func (c *Conn) handleOKErrPacket(data []byte) error {
 	}
 }
 
-func (c *Conn) readOKErrPacket() error {
-	data, err := c.readPacket()
+func (c *Conn) ReadOKErrPacket() error {
+	data, err := c.ReadPacket()
 	if err != nil {
 		return err
 	}
 	fmt.Println(hex.Dump(data)) // TODO
-	return c.handleOKErrPacket(data)
+	return c.HandleOKErrPacket(data)
 }
 
 func WithHost(host string) Option {

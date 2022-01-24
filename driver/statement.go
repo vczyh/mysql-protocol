@@ -1,4 +1,4 @@
-package client
+package driver
 
 import (
 	"database/sql/driver"
@@ -10,7 +10,7 @@ import (
 )
 
 type Stmt struct {
-	conn       *Conn
+	conn       *conn
 	id         uint32
 	paramCount int
 }
@@ -22,7 +22,7 @@ func (stmt *Stmt) Close() error {
 	}
 
 	pkt := command.NewStmtCLost(stmt.id)
-	if err := stmt.conn.writeCommandPacket(pkt); err != nil {
+	if err := stmt.conn.mysqlConn.WriteCommandPacket(pkt); err != nil {
 		return err
 	}
 
@@ -41,8 +41,8 @@ func (stmt *Stmt) Exec(args []driver.Value) (driver.Result, error) {
 		return nil, err
 	}
 
-	stmt.conn.affectedRows = 0
-	stmt.conn.lastInsertId = 0
+	stmt.conn.mysqlConn.AffectedRows = 0
+	stmt.conn.mysqlConn.LastInsertId = 0
 
 	columnCount, err := stmt.conn.readExecuteResponseFirstPacket()
 	if err != nil {
@@ -50,10 +50,10 @@ func (stmt *Stmt) Exec(args []driver.Value) (driver.Result, error) {
 	}
 
 	if columnCount > 0 {
-		if err := stmt.conn.readUntilEOFPacket(); err != nil {
+		if err := stmt.conn.mysqlConn.ReadUntilEOFPacket(); err != nil {
 			return nil, err
 		}
-		if err := stmt.conn.readUntilEOFPacket(); err != nil {
+		if err := stmt.conn.mysqlConn.ReadUntilEOFPacket(); err != nil {
 			return nil, err
 		}
 	}
@@ -63,8 +63,8 @@ func (stmt *Stmt) Exec(args []driver.Value) (driver.Result, error) {
 	}
 
 	return &result{
-		affectedRows: int64(stmt.conn.affectedRows),
-		lastInsertId: int64(stmt.conn.lastInsertId),
+		affectedRows: int64(stmt.conn.mysqlConn.AffectedRows),
+		lastInsertId: int64(stmt.conn.mysqlConn.LastInsertId),
 	}, nil
 }
 
@@ -150,17 +150,24 @@ func (stmt *Stmt) writeExecutePacket(args []driver.Value) (err error) {
 			case time.Time:
 				pkt.ParamType = append(pkt.ParamType, byte(command.MYSQL_TYPE_STRING), 0x00)
 
-				var a [64]byte
-				var b = a[:0]
-
+				var b []byte
 				if v.IsZero() {
-					b = append(b, "0000-00-00"...)
+					b = append(b, "0000-00-00 00:00:00.000000"...)
 				} else {
-					b, err = appendDateTime(b, v.In(time.Local)) // TODO time location
-					if err != nil {
-						return err
-					}
+					b = append(b, v.Format("2006-01-02 15:04:05.000000")...)
 				}
+
+				//var a [64]byte
+				//var b = a[:0]
+				//
+				//if v.IsZero() {
+				//	b = append(b, "0000-00-00"...)
+				//} else {
+				//	b, err = appendDateTime(b, v.In(time.Local)) // TODO time location
+				//	if err != nil {
+				//		return err
+				//	}
+				//}
 
 				pkt.ParamValue = append(pkt.ParamValue, types.LengthEncodedInteger.Dump(uint64(len(b)))...)
 				pkt.ParamValue = append(pkt.ParamValue, b...)
@@ -171,5 +178,5 @@ func (stmt *Stmt) writeExecutePacket(args []driver.Value) (err error) {
 		}
 	}
 
-	return stmt.conn.writeCommandPacket(pkt)
+	return stmt.conn.mysqlConn.WriteCommandPacket(pkt)
 }

@@ -1,4 +1,4 @@
-package client
+package driver
 
 import (
 	"database/sql/driver"
@@ -8,7 +8,7 @@ import (
 )
 
 type resultSet struct {
-	conn        *Conn
+	conn        *conn
 	columns     []*command.ColumnDefinition
 	columnNames []string
 	done        bool
@@ -34,7 +34,7 @@ func (rs *resultSet) Close() error {
 		return nil
 	}
 
-	err := rs.conn.readUntilEOFPacket()
+	err := rs.conn.mysqlConn.ReadUntilEOFPacket()
 	if err != nil {
 		return err
 	}
@@ -51,14 +51,14 @@ type binaryRows struct {
 }
 
 func (r *binaryRows) Next(dest []driver.Value) error {
-	data, err := r.conn.readPacket()
+	data, err := r.conn.mysqlConn.ReadPacket()
 	if err != nil {
 		return err
 	}
 
 	switch {
 	case generic.IsErr(data):
-		return r.conn.handleOKErrPacket(data)
+		return r.conn.mysqlConn.HandleOKErrPacket(data)
 
 	case generic.IsEOF(data):
 		r.done = true
@@ -82,14 +82,14 @@ type textRows struct {
 }
 
 func (r *textRows) Next(dest []driver.Value) error {
-	data, err := r.conn.readPacket()
+	data, err := r.conn.mysqlConn.ReadPacket()
 	if err != nil {
 		return err
 	}
 
 	switch {
 	case generic.IsErr(data):
-		return r.conn.handleOKErrPacket(data)
+		return r.conn.mysqlConn.HandleOKErrPacket(data)
 
 	case generic.IsEOF(data):
 		r.done = true
