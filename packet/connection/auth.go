@@ -10,7 +10,7 @@ type AuthSwitchRequest struct {
 	generic.Header
 
 	PayloadHeader uint8
-	PluginName    []byte
+	AuthPlugin    generic.AuthenticationPlugin
 	AuthData      []byte
 }
 
@@ -24,21 +24,27 @@ func ParseAuthSwitchRequest(data []byte) (*AuthSwitchRequest, error) {
 	}
 
 	p.PayloadHeader = uint8(types.FixedLengthInteger.Get(buf.Next(1)))
-	if p.PluginName, err = types.NulTerminatedString.Get(buf); err != nil {
+
+	pluginName, err := types.NulTerminatedString.Get(buf)
+	if err != nil {
 		return nil, err
 	}
+	if p.AuthPlugin, err = generic.ParseAuthenticationPlugin(string(pluginName)); err != nil {
+		return nil, err
+	}
+
 	p.AuthData = buf.Bytes()
 
 	return &p, nil
 }
 
-func (p *AuthSwitchRequest) GetPlugin() AuthenticationPlugin {
-	switch string(p.PluginName) {
-	case MySQLNativePassword.String():
-		return MySQLNativePassword
-	case CachingSHA2Password.String():
-		return CachingSHA2Password
-	default:
-		return MySQLNativePassword
-	}
-}
+//func (p *AuthSwitchRequest) GetPlugin() generic.AuthenticationPlugin {
+//	switch string(p.PluginName) {
+//	case generic.MySQLNativePasswordPlugin.String():
+//		return generic.MySQLNativePasswordPlugin
+//	case generic.CachingSHA2PasswordPlugin.String():
+//		return generic.CachingSHA2PasswordPlugin
+//	default:
+//		return generic.MySQLNativePasswordPlugin
+//	}
+//}

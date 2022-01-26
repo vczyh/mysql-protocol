@@ -12,7 +12,7 @@ type OK struct {
 	OKHeader            uint8
 	AffectedRows        uint64
 	LastInsertId        uint64
-	StatusFlags         uint16
+	StatusFlags         StatusFlag
 	WarningCount        uint16
 	Info                []byte
 	SessionStateChanges []byte // todo
@@ -30,7 +30,7 @@ const (
 //	Data []byte
 //}
 
-func ParseOk(bs []byte, capabilities uint32) (*OK, error) {
+func ParseOk(bs []byte, capabilities CapabilityFlag) (*OK, error) {
 	var p OK
 	var err error
 
@@ -57,14 +57,14 @@ func ParseOk(bs []byte, capabilities uint32) (*OK, error) {
 	}
 
 	// Status Flags
-	if capabilities&CLIENT_PROTOCOL_41 != 0x00000000 {
-		p.StatusFlags = uint16(types.FixedLengthInteger.Get(buf.Next(2)))
+	if capabilities&ClientProtocol41 != 0x00000000 {
+		p.StatusFlags = StatusFlag(uint16(types.FixedLengthInteger.Get(buf.Next(2))))
 		p.WarningCount = uint16(types.FixedLengthInteger.Get(buf.Next(2)))
-	} else if capabilities&CLIENT_TRANSACTIONS != 0x00000000 {
-		p.StatusFlags = uint16(types.FixedLengthInteger.Get(buf.Next(2)))
+	} else if capabilities&ClientTransactions != 0x00000000 {
+		p.StatusFlags = StatusFlag(uint16(types.FixedLengthInteger.Get(buf.Next(2))))
 	}
 
-	if capabilities&CLIENT_SESSION_TRACK != 0x00000000 {
+	if capabilities&ClientSessionTrack != 0x00000000 {
 		// Info
 		if p.Info, err = types.LengthEncodedString.Get(buf); err != nil {
 			return nil, err
@@ -72,7 +72,7 @@ func ParseOk(bs []byte, capabilities uint32) (*OK, error) {
 
 		// todo
 		// Session State Changes
-		if p.StatusFlags&SERVER_SESSION_STATE_CHANGED != 0x00000000 {
+		if p.StatusFlags&ServerSessionStateChanged != 0x00000000 {
 			if p.SessionStateChanges, err = types.LengthEncodedString.Get(buf); err != nil {
 				return nil, err
 			}

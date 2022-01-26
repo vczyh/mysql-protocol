@@ -6,6 +6,7 @@ import (
 	"mysql-protocol/packet/types"
 )
 
+// StmtPrepareOKFirst https://dev.mysql.com/doc/internals/en/com-stmt-prepare-response.html#packet-COM_STMT_PREPARE_OK
 type StmtPrepareOKFirst struct {
 	generic.Header
 
@@ -39,6 +40,7 @@ func ParseStmtPrepareOKFirst(data []byte) (*StmtPrepareOKFirst, error) {
 	return &p, nil
 }
 
+// StmtExecute https://dev.mysql.com/doc/internals/en/com-stmt-execute.html
 type StmtExecute struct {
 	generic.Header
 
@@ -53,19 +55,24 @@ type StmtExecute struct {
 }
 
 func NewStmtExecute() *StmtExecute {
-	return &StmtExecute{ComStmtExecute: COM_STMT_EXECUTE}
+	return &StmtExecute{
+		IterationCount: 1,
+		ComStmtExecute: generic.ComStmtExecute,
+	}
 }
 
-func (p *StmtExecute) CreateNullBitMap(paramCount, offset int) {
+func (p *StmtExecute) CreateNullBitMap(paramCount int) {
 	if p.NullBitMap == nil {
+		offset := 0
 		p.NullBitMap = make([]byte, (paramCount+7+offset)/8)
 	}
 }
 
-func (p *StmtExecute) NullBitMapSet(paramCount, index, offset int) {
+func (p *StmtExecute) NullBitMapSet(paramCount, index int) {
 	if p.NullBitMap == nil {
-		p.NullBitMap = make([]byte, (paramCount+7+offset)/8)
+		p.CreateNullBitMap(paramCount)
 	}
+	offset := 0
 	bytePos := (index + offset) / 8
 	bitPos := (index + offset) % 8
 	p.NullBitMap[bytePos] |= 1 << bitPos

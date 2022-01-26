@@ -16,7 +16,7 @@ type ERR struct {
 	ErrorMessage   []byte
 }
 
-func ParseERR(bs []byte, capabilities uint32) (*ERR, error) {
+func ParseERR(bs []byte, capabilities CapabilityFlag) (*ERR, error) {
 	var p ERR
 	var err error
 
@@ -35,7 +35,7 @@ func ParseERR(bs []byte, capabilities uint32) (*ERR, error) {
 	// Error Code
 	p.ErrorCode = uint16(types.FixedLengthInteger.Get(buf.Next(2)))
 
-	if capabilities&CLIENT_PROTOCOL_41 != 0x00000000 {
+	if capabilities&ClientProtocol41 != 0 {
 		if buf.Len() == 0 {
 			return nil, ErrPacketData
 		}

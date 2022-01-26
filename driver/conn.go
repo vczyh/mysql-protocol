@@ -7,11 +7,12 @@ import (
 	"mysql-protocol/client"
 	"mysql-protocol/packet/command"
 	"mysql-protocol/packet/generic"
+	"time"
 )
 
 type conn struct {
 	config    *config
-	mysqlConn *client.Conn
+	mysqlConn client.Conn
 }
 
 type config struct {
@@ -19,6 +20,7 @@ type config struct {
 	port     int
 	user     string
 	password string
+	loc      *time.Location
 }
 
 func createConnection(config *config) (driver.Conn, error) {
@@ -26,8 +28,8 @@ func createConnection(config *config) (driver.Conn, error) {
 		return nil, fmt.Errorf("config is nil")
 	}
 
-	conn := &conn{config: config}
 	var err error
+	conn := &conn{config: config}
 	conn.mysqlConn, err = client.CreateConnection(
 		client.WithHost(conn.config.host),
 		client.WithPort(conn.config.port),
@@ -96,7 +98,7 @@ func (c *conn) Ping(ctx context.Context) error {
 }
 
 func (c *conn) getResult() error {
-	for c.mysqlConn.Status&generic.SERVER_MORE_RESULTS_EXISTS != 0 {
+	for c.mysqlConn.Status()&generic.ServerMoreResultsExists != 0 {
 		columnCount, err := c.readExecuteResponseFirstPacket()
 		if err != nil {
 			return nil
@@ -152,10 +154,6 @@ func (c *conn) readColumns(count int) ([]*command.ColumnDefinition, error) {
 			return nil, err
 		}
 
-		//columns[i].name = string(columnDefPkt.Name)
-		//columns[i].length = columnDefPkt.ColumnLength
-		//columns[i].columnType = command.TableColumnType(columnDefPkt.ColumnType)
-		//columns[i].flags = generic.ColumnDefinitionFlag(columnDefPkt.Flags)
 		columns[i] = columnDefPkt
 		// TODO
 	}

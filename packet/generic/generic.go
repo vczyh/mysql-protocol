@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	ErrPacketData = errors.New("packet data error")
+	ErrPacketData = errors.New("packet: data error")
 )
 
 type Packet interface {
@@ -32,7 +32,7 @@ func (h *Header) Parse(buf *bytes.Buffer) error {
 	return nil
 }
 
-func (h *Header) SetSequence(seq int)  {
+func (h *Header) SetSequence(seq int) {
 	h.Seq = uint8(seq)
 }
 
@@ -56,28 +56,4 @@ func NewSimple(data []byte) *Simple {
 func (p *Simple) Dump() []byte {
 	p.Header.Length = uint32(len(p.Data))
 	return append(p.Header.Dump(), p.Data...)
-}
-
-// ParseGeneric
-// TODO 去掉？
-func ParseGeneric(bs []byte, capabilities uint32) (Packet, error) {
-	l := len(bs)
-	if l < 5 {
-		return nil, ErrPacketData
-	}
-	header := bs[4]
-
-	switch {
-	// OK Packet
-	case header == 0x00 && l > 7:
-		return ParseOk(bs, capabilities)
-	// EOF Packet
-	case header == 0xfe && l < 9:
-		return ParseEOF(bs, capabilities)
-	// ERR Packet
-	case header == 0xff:
-		return ParseERR(bs, capabilities)
-	default:
-		return nil, ErrPacketData
-	}
 }

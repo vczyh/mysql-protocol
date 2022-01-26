@@ -11,10 +11,10 @@ type EOF struct {
 
 	EOFHeader    uint8
 	WarningCount uint16
-	StatusFlags  uint16
+	StatusFlags  StatusFlag
 }
 
-func ParseEOF(bs []byte, capabilities uint32) (*EOF, error) {
+func ParseEOF(bs []byte, capabilities CapabilityFlag) (*EOF, error) {
 	var p EOF
 	var err error
 
@@ -30,11 +30,11 @@ func ParseEOF(bs []byte, capabilities uint32) (*EOF, error) {
 	}
 	p.EOFHeader = buf.Next(1)[0]
 
-	if capabilities&CLIENT_PROTOCOL_41 != 0x00000000 {
+	if capabilities&ClientProtocol41 != 0 {
 		// Warning Count
 		p.WarningCount = uint16(types.FixedLengthInteger.Get(buf.Next(2)))
 		// Status Flags
-		p.StatusFlags = uint16(types.FixedLengthInteger.Get(buf.Next(2)))
+		p.StatusFlags = StatusFlag(types.FixedLengthInteger.Get(buf.Next(2)))
 	}
 
 	return &p, nil

@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 func init() {
@@ -16,9 +17,13 @@ type Driver struct {
 	port     int
 	user     string
 	password string
-	// query values
+
+	// query
+	loc *time.Location
 }
 
+// Open called by database/sql when need create new mysql connection
+// name format: mysql://user:password@ip:port?loc=UTC
 func (d *Driver) Open(name string) (driver.Conn, error) {
 	if err := d.parseName(name); err != nil {
 		return nil, err
@@ -29,6 +34,7 @@ func (d *Driver) Open(name string) (driver.Conn, error) {
 		port:     d.port,
 		user:     d.user,
 		password: d.password,
+		loc:      d.loc,
 	})
 }
 
@@ -41,10 +47,20 @@ func (d *Driver) parseName(name string) error {
 	if d.port, err = strconv.Atoi(u.Port()); err != nil {
 		return err
 	}
+
 	d.user = u.User.Username()
 	if password, set := u.User.Password(); set {
 		d.password = password
 	}
-	// TODO query
+
+	query := u.Query()
+	if locName := query.Get("loc"); locName != "" {
+		if d.loc, err = time.LoadLocation(locName); err != nil {
+			return err
+		}
+	} else {
+		d.loc = time.Local
+	}
+
 	return nil
 }

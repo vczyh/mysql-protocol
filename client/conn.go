@@ -2,7 +2,6 @@ package client
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"mysql-protocol/packet/command"
 	"mysql-protocol/packet/connection"
@@ -10,26 +9,48 @@ import (
 	"net"
 )
 
-type Conn struct {
+type Conn interface {
+	Capabilities() generic.CapabilityFlag
+	Status() generic.StatusFlag
+
+	AffectedRows() uint64
+	LastInsertId() uint64
+
+	ReadPacket() ([]byte, error)
+	ReadOKErrPacket() error
+	ReadUntilEOFPacket() error
+
+	WritePacket(generic.Packet) error
+	WriteCommandPacket(generic.Packet) error
+
+	HandleOKErrPacket([]byte) error
+
+	Ping() error
+	Close() error
+}
+
+type conn struct {
 	host     string
 	port     int
 	user     string
 	password string
+	attrs    map[string]string
 
 	subConn
 	sequence uint8
 
-	Capabilities uint32
-	AffectedRows uint64
-	LastInsertId uint64
-	Status       uint16
+	capabilities generic.CapabilityFlag
+	status       generic.StatusFlag
+	affectedRows uint64
+	lastInsertId uint64
 }
 
-func CreateConnection(opts ...Option) (*Conn, error) {
-	var c Conn
+func CreateConnection(opts ...Option) (Conn, error) {
 	var err error
+	c := new(conn)
+
 	for _, opt := range opts {
-		opt.apply(&c)
+		opt.apply(c)
 	}
 
 	c.conn, err = net.Dial("tcp", fmt.Sprintf("%s:%d", c.host, c.port))
@@ -37,16 +58,15 @@ func CreateConnection(opts ...Option) (*Conn, error) {
 		return nil, err
 	}
 
-	return &c, c.dial()
+	return c, c.dial()
 }
 
-func (c *Conn) Close() error {
-	_ = c.Quit()
+func (c *conn) Close() error {
+	_ = c.quit()
 	return c.subConn.close()
 }
 
-// Quit is implement of the COM_QUIT
-func (c *Conn) Quit() error {
+func (c *conn) quit() error {
 	pkt := command.NewQuit()
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return err
@@ -60,8 +80,7 @@ func (c *Conn) Quit() error {
 	return err
 }
 
-// Ping is implement of the COM_PING
-func (c *Conn) Ping() error {
+func (c *conn) Ping() error {
 	pkt := command.NewPing()
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return err
@@ -69,7 +88,7 @@ func (c *Conn) Ping() error {
 	return c.ReadOKErrPacket()
 }
 
-func (c *Conn) dial() error {
+func (c *conn) dial() error {
 	handshake, err := c.handshake()
 	if err != nil {
 		return err
@@ -78,10 +97,10 @@ func (c *Conn) dial() error {
 	if err := c.handshakeResponse(handshake); err != nil {
 		return err
 	}
-	return c.auth(handshake.GetPlugin(), handshake.GetAuthData())
+	return c.auth(handshake.AuthPlugin, handshake.GetAuthData())
 }
 
-func (c *Conn) handshake() (*connection.Handshake, error) {
+func (c *conn) handshake() (*connection.Handshake, error) {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return nil, err
@@ -92,35 +111,46 @@ func (c *Conn) handshake() (*connection.Handshake, error) {
 	return connection.ParseHandshake(data)
 }
 
-func (c *Conn) handshakeResponse(handshake *connection.Handshake) error {
-	serverPlugin := handshake.GetPlugin()
+func (c *conn) handshakeResponse(handshake *connection.Handshake) error {
+	serverPlugin := handshake.AuthPlugin
 	authData := handshake.GetAuthData()
 
-	var p connection.HandshakeResponse
-	p.ClientCapabilityFlags |= generic.CLIENT_PROTOCOL_41 |
-		generic.CLIENT_SECURE_CONNECTION |
-		generic.CLIENT_LONG_PASSWORD |
-		generic.CLIENT_LONG_FLAG |
-		generic.CLIENT_TRANSACTIONS |
-		generic.CLIENT_INTERACTIVE |
-		generic.CLIENT_MULTI_RESULTS
-	p.MaxPacketSize = 16777215
-	p.SetCharacterSet(connection.Utf8GeneralCi)
-	p.SetUsername(c.user)
-	if err := p.SetPassword(serverPlugin, c.password, authData); err != nil {
+	var pkt connection.HandshakeResponse
+
+	pkt.ClientCapabilityFlags |= generic.ClientProtocol41 |
+		generic.ClientSecureConnection |
+		generic.ClientPluginAuth |
+		generic.ClientLongPassword |
+		generic.ClientLongFlag |
+		generic.ClientTransactions |
+		generic.ClientInteractive |
+		generic.ClientMultiResults
+
+	// TODO max packet size
+	pkt.MaxPacketSize = 16777215
+	pkt.CharacterSet = generic.Utf8mb4GeneralCi
+	pkt.Username = []byte(c.user)
+	pkt.AuthPlugin = serverPlugin
+
+	passwordEncrypted, err := generic.EncryptPassword(serverPlugin, []byte(c.password), authData)
+	if err != nil {
 		return err
 	}
-	p.SetAuthPlugin(handshake.GetPlugin())
-	p.AddAttribute("_client_name", "pymysql")
-	p.AddAttribute("_pid", "41674")
-	p.AddAttribute("_client_version", "1.0.2")
-	p.AddAttribute("program_name", "mycli")
+	pkt.AuthRes = passwordEncrypted
 
-	c.Capabilities = p.ClientCapabilityFlags
-	return c.WritePacket(&p)
+	if len(c.attrs) > 0 {
+		pkt.ClientCapabilityFlags |= generic.ClientConnectAttrs
+		for key, val := range c.attrs {
+			pkt.AddAttribute(key, val)
+		}
+	}
+
+	c.capabilities = pkt.ClientCapabilityFlags
+
+	return c.WritePacket(&pkt)
 }
 
-func (c *Conn) ReadPacket() ([]byte, error) {
+func (c *conn) ReadPacket() ([]byte, error) {
 	// payload length
 	lenData, err := c.Next(3)
 	if err != nil {
@@ -152,7 +182,7 @@ func (c *Conn) ReadPacket() ([]byte, error) {
 	return packetData, nil
 }
 
-func (c *Conn) ReadUntilEOFPacket() error {
+func (c *conn) ReadUntilEOFPacket() error {
 	for {
 		data, err := c.ReadPacket()
 		if err != nil {
@@ -165,48 +195,46 @@ func (c *Conn) ReadUntilEOFPacket() error {
 
 		case generic.IsEOF(data):
 			// TODO status
-			eofPkt, err := generic.ParseEOF(data, c.Capabilities)
+			eofPkt, err := generic.ParseEOF(data, c.capabilities)
 			if err != nil {
 				return err
 			}
-			c.Status = eofPkt.StatusFlags // todo test
+			c.status = eofPkt.StatusFlags // todo test
 			return nil
 		}
 	}
 }
 
-func (c *Conn) WritePacket(packet generic.Packet) error {
+func (c *conn) WritePacket(packet generic.Packet) error {
 	c.sequence++
 	packet.SetSequence(int(c.sequence))
-	fmt.Println(hex.Dump(packet.Dump())) // todo
 	_, err := c.subConn.Write(packet.Dump())
 	return err
 }
 
-func (c *Conn) WriteCommandPacket(pkt generic.Packet) error {
+func (c *conn) WriteCommandPacket(pkt generic.Packet) error {
 	c.sequence = 0
 	pkt.SetSequence(int(c.sequence))
-	fmt.Println(hex.Dump(pkt.Dump())) // todo
 	_, err := c.subConn.Write(pkt.Dump())
 	return err
 }
 
-func (c *Conn) HandleOKErrPacket(data []byte) error {
+func (c *conn) HandleOKErrPacket(data []byte) error {
 	switch {
 	case generic.IsOK(data):
-		okPkt, err := generic.ParseOk(data, c.Capabilities)
+		okPkt, err := generic.ParseOk(data, c.capabilities)
 		if err != nil {
 			return err
 		}
 
-		c.AffectedRows = okPkt.AffectedRows
-		c.LastInsertId = okPkt.LastInsertId
-		c.Status = okPkt.StatusFlags // todo test
+		c.affectedRows = okPkt.AffectedRows
+		c.lastInsertId = okPkt.LastInsertId
+		c.status = okPkt.StatusFlags // todo test
 
 		return nil
 
 	case generic.IsErr(data):
-		errPkt, err := generic.ParseERR(data, c.Capabilities)
+		errPkt, err := generic.ParseERR(data, c.capabilities)
 		if err != nil {
 			return err
 		}
@@ -217,45 +245,69 @@ func (c *Conn) HandleOKErrPacket(data []byte) error {
 	}
 }
 
-func (c *Conn) ReadOKErrPacket() error {
+func (c *conn) ReadOKErrPacket() error {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return err
 	}
-	fmt.Println(hex.Dump(data)) // TODO
 	return c.HandleOKErrPacket(data)
 }
 
+func (c *conn) Capabilities() generic.CapabilityFlag {
+	return c.capabilities
+}
+
+func (c *conn) Status() generic.StatusFlag {
+	return c.status
+}
+
+func (c *conn) AffectedRows() uint64 {
+	return c.affectedRows
+}
+
+func (c *conn) LastInsertId() uint64 {
+	return c.lastInsertId
+}
+
 func WithHost(host string) Option {
-	return optionFun(func(c *Conn) {
+	return optionFun(func(c *conn) {
 		c.host = host
 	})
 }
 
 func WithPort(port int) Option {
-	return optionFun(func(c *Conn) {
+	return optionFun(func(c *conn) {
 		c.port = port
 	})
 }
 
 func WithUser(user string) Option {
-	return optionFun(func(c *Conn) {
+	return optionFun(func(c *conn) {
 		c.user = user
 	})
 }
 
 func WithPassword(password string) Option {
-	return optionFun(func(c *Conn) {
+	return optionFun(func(c *conn) {
 		c.password = password
 	})
 }
 
-type Option interface {
-	apply(*Conn)
+func WithAttribute(key string, val string) Option {
+	return optionFun(func(c *conn) {
+		if c.attrs == nil {
+			c.attrs = make(map[string]string)
+			c.attrs[key] = val
+		}
+	})
 }
 
-type optionFun func(*Conn)
+type Option interface {
+	apply(*conn)
+}
 
-func (f optionFun) apply(c *Conn) {
+type optionFun func(*conn)
+
+func (f optionFun) apply(c *conn) {
 	f(c)
 }

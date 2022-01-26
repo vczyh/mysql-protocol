@@ -1,32 +1,44 @@
-package connection
+package generic
 
 import (
 	"crypto/sha1"
 	"crypto/sha256"
+	"fmt"
 )
 
 type AuthenticationPlugin uint8
 
 const (
-	MySQLNativePassword AuthenticationPlugin = iota
-	CachingSHA2Password
+	MySQLNativePasswordPlugin AuthenticationPlugin = iota
+	CachingSHA2PasswordPlugin
 )
+
+func ParseAuthenticationPlugin(name string) (AuthenticationPlugin, error) {
+	switch name {
+	case MySQLNativePasswordPlugin.String():
+		return MySQLNativePasswordPlugin, nil
+	case CachingSHA2PasswordPlugin.String():
+		return CachingSHA2PasswordPlugin, nil
+	default:
+		return MySQLNativePasswordPlugin, fmt.Errorf("unknown auth plugin")
+	}
+}
 
 func (p AuthenticationPlugin) String() string {
 	switch p {
-	case MySQLNativePassword:
+	case MySQLNativePasswordPlugin:
 		return "mysql_native_password"
-	case CachingSHA2Password:
+	case CachingSHA2PasswordPlugin:
 		return "caching_sha2_password"
 	default:
-		return "unknown auth plugin"
+		return "Unknown AuthenticationPlugin"
 	}
 }
 
 func EncryptPassword(plugin AuthenticationPlugin, password, salt []byte) ([]byte, error) {
 	switch plugin {
 	// https://dev.mysql.com/doc/internals/en/secure-password-authentication.html
-	case MySQLNativePassword:
+	case MySQLNativePasswordPlugin:
 		h := sha1.New()
 		h.Write(password)
 		stage1 := h.Sum(nil)
@@ -49,7 +61,7 @@ func EncryptPassword(plugin AuthenticationPlugin, password, salt []byte) ([]byte
 		return stage4, nil
 
 	// XOR(SHA256(PASSWORD), SHA256(SHA256(SHA256(PASSWORD)), seed_bytes))
-	case CachingSHA2Password:
+	case CachingSHA2PasswordPlugin:
 		h := sha256.New()
 		h.Write(password)
 		stage1 := h.Sum(nil)
@@ -69,6 +81,6 @@ func EncryptPassword(plugin AuthenticationPlugin, password, salt []byte) ([]byte
 		return stage1, nil
 
 	default:
-		return nil, nil
+		return nil, fmt.Errorf("unsupported authentication plugin")
 	}
 }

@@ -11,7 +11,7 @@ import (
 	"mysql-protocol/packet/generic"
 )
 
-func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) error {
+func (c *conn) auth(plugin generic.AuthenticationPlugin, authData []byte) error {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return err
@@ -27,7 +27,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 			return err
 		}
 		authSwitch = true
-		plugin = switchPkt.GetPlugin()
+		plugin = switchPkt.AuthPlugin
 		authData = switchPkt.AuthData
 	}
 
@@ -52,7 +52,7 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 		switch plugin {
 		// https://dev.mysql.com/blog-archive/preparing-your-community-connector-for-mysql-8-part-2-sha256/
 		// https://dev.mysql.com/doc/dev/mysql-server/latest/page_caching_sha2_authentication_exchanges.html
-		case connection.CachingSHA2Password:
+		case generic.CachingSHA2PasswordPlugin:
 			switch pluginData[0] {
 			// fast authentication
 			case 0x03:
@@ -77,20 +77,13 @@ func (c *Conn) auth(plugin connection.AuthenticationPlugin, authData []byte) err
 	return generic.ErrPacketData
 }
 
-func (c *Conn) writeAuthSwitchResponsePacket(plugin connection.AuthenticationPlugin, authData []byte) (err error) {
-	encryptedPassword, err := connection.EncryptPassword(plugin, []byte(c.password), authData)
+func (c *conn) writeAuthSwitchResponsePacket(plugin generic.AuthenticationPlugin, authData []byte) (err error) {
+	encryptedPassword, err := generic.EncryptPassword(plugin, []byte(c.password), authData)
 	authRes := connection.NewAuthSwitchResponse(encryptedPassword)
 	return c.WritePacket(authRes)
-
-	//var switchResPkt connection.AuthSwitchResponse
-	//switchResPkt.AuthRes, err = connection.EncryptPassword(plugin, []byte(c.password), authData)
-	//if err != nil {
-	//	return err
-	//}
-	//return c.writePacket(&switchResPkt)
 }
 
-func (c *Conn) requestPublicKey() ([]byte, error) {
+func (c *conn) requestPublicKey() ([]byte, error) {
 	simplePkt := generic.NewSimple([]byte{0x02})
 	if err := c.WritePacket(simplePkt); err != nil {
 		return nil, err
@@ -108,7 +101,7 @@ func (c *Conn) requestPublicKey() ([]byte, error) {
 	return pluginData, nil
 }
 
-func (c *Conn) writePasswordEncryptedWithPublicKeyPacket(data []byte, seed []byte) error {
+func (c *conn) writePasswordEncryptedWithPublicKeyPacket(data []byte, seed []byte) error {
 	block, rest := pem.Decode(data)
 	if block == nil {
 		return fmt.Errorf("no pem data found, data: %s", rest)
