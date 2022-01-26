@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql/driver"
 	"fmt"
-	"mysql-protocol/client"
-	"mysql-protocol/packet/command"
-	"mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/client"
+	"github.com/vczyh/mysql-protocol/packet/command"
+	"github.com/vczyh/mysql-protocol/packet/generic"
 	"time"
 )
 

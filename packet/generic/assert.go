@@ -1,6 +1,6 @@
 package generic
 
-import "mysql-protocol/packet/types"
+import "github.com/vczyh/mysql-protocol/packet/types"
 
 const (
 	OKPacketHeader                = 0x00

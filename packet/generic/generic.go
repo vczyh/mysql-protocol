@@ -3,7 +3,7 @@ package generic
 import (
 	"bytes"
 	"errors"
-	"mysql-protocol/packet/types"
+	"github.com/vczyh/mysql-protocol/packet/types"
 )
 
 var (

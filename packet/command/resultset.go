@@ -3,9 +3,9 @@ package command
 import (
 	"bytes"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet/types"
 	"math"
-	"mysql-protocol/packet/generic"
-	"mysql-protocol/packet/types"
 	"time"
 )
 

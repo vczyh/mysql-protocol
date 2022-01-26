@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"mysql-protocol/packet/generic"
-	"mysql-protocol/packet/types"
+	"github.com/vczyh/mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet/types"
 )
 
 // Handshake https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::Handshake

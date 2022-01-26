@@ -2,9 +2,9 @@ package driver
 
 import (
 	"database/sql/driver"
+	"github.com/vczyh/mysql-protocol/packet/command"
+	"github.com/vczyh/mysql-protocol/packet/generic"
 	"io"
-	"mysql-protocol/packet/command"
-	"mysql-protocol/packet/generic"
 )
 
 type resultSet struct {

@@ -7,8 +7,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"mysql-protocol/packet/connection"
-	"mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet/connection"
+	"github.com/vczyh/mysql-protocol/packet/generic"
 )
 
 func (c *conn) auth(plugin generic.AuthenticationPlugin, authData []byte) error {

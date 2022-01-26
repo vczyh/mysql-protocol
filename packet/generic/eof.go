@@ -2,7 +2,7 @@ package generic
 
 import (
 	"bytes"
-	"mysql-protocol/packet/types"
+	"github.com/vczyh/mysql-protocol/packet/types"
 )
 
 // EOF https://dev.mysql.com/doc/internals/en/packet-EOF_Packet.html

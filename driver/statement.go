@@ -3,10 +3,10 @@ package driver
 import (
 	"database/sql/driver"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/packet/command"
+	"github.com/vczyh/mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet/types"
 	"math"
-	"mysql-protocol/packet/command"
-	"mysql-protocol/packet/generic"
-	"mysql-protocol/packet/types"
 	"reflect"
 	"time"
 )

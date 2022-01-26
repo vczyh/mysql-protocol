@@ -2,8 +2,8 @@ package connection
 
 import (
 	"bytes"
-	"mysql-protocol/packet/generic"
-	"mysql-protocol/packet/types"
+	"github.com/vczyh/mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet/types"
 )
 
 type AuthSwitchRequest struct {

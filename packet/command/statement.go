@@ -2,8 +2,8 @@ package command
 
 import (
 	"bytes"
-	"mysql-protocol/packet/generic"
-	"mysql-protocol/packet/types"
+	"github.com/vczyh/mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet/types"
 )
 
 // StmtPrepareOKFirst https://dev.mysql.com/doc/internals/en/com-stmt-prepare-response.html#packet-COM_STMT_PREPARE_OK

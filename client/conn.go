@@ -3,9 +3,9 @@ package client
 import (
 	"encoding/binary"
 	"fmt"
-	"mysql-protocol/packet/command"
-	"mysql-protocol/packet/connection"
-	"mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet/command"
+	"github.com/vczyh/mysql-protocol/packet/connection"
+	"github.com/vczyh/mysql-protocol/packet/generic"
 	"net"
 )
 

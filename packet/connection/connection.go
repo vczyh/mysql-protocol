@@ -1,7 +1,7 @@
 package connection
 
 import (
-	"mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet/generic"
 )
 
 func NewAuthSwitchResponse(authRes []byte) *generic.Simple {
