@@ -67,7 +67,7 @@ func (c *conn) Close() error {
 }
 
 func (c *conn) quit() error {
-	pkt := command.NewQuit()
+	pkt := command.New(generic.ComQuit, nil)
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func (c *conn) quit() error {
 }
 
 func (c *conn) Ping() error {
-	pkt := command.NewPing()
+	pkt := command.New(generic.ComPing, nil)
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return err
 	}
