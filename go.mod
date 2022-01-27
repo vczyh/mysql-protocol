@@ -1,1 +1,1 @@
-module "github.com/vczyh/mysql-protocol"
+module github.com/vczyh/mysql-protocol
