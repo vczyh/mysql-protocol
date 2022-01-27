@@ -5,70 +5,14 @@ import (
 	"io"
 )
 
-//var (
-//	errInvalidLength = errors.New("ParseType: invalid length")
-//)
-
-//type Integer interface {
-//	Bind([]byte, interface{}) error
-//	Uint8([]byte) (uint8, error)
-//	Uint16(io.Reader, int) (uint16, error)
-//	Uint32(io.Reader, int) (uint32, error)
-//	Uint64(io.Reader, int) (uint64, error)
-//	PutUint8(io.Writer, uint8) error
-//	PutUint16(io.Writer, uint16) error
-//	PutUint32(io.Writer, uint32) error
-//	PutUint64(io.Writer, uint64) error
-//}
-
 var FixedLengthInteger fixedLengthInteger
 
 // https://dev.mysql.com/doc/internals/en/integer.html#fixed-length-integer
 type fixedLengthInteger struct{}
 
-//func (fixedLengthInteger) Bind(bs []byte, v interface{}) error {
-//	l := len(bs)
-//	if l == 0 || l > 8 {
-//		return errInvalidLength
-//	}
-//	for {
-//		if l == 1 || l == 2 || l == 4 || l == 8 {
-//			break
-//		}
-//		bs = append(bs, 0x00)
-//		l++
-//	}
-//	switch t := v.(type) {
-//	case *uint8:
-//		uint8(bs[0])
-//	}
-//
-//	return binary.Read(bytes.NewBuffer(bs), binary.LittleEndian, v)
-//}
-
-//func (fixedLengthInteger) Uint16(bs []byte) uint16 {
-//	return binary.LittleEndian.Uint16(byteAlignment(bs, 2))
-//}
-
-//func (fixedLengthInteger) Uint32(bs []byte) uint32 {
-//	return binary.LittleEndian.Uint32(byteAlignment(bs, 4))
-//}
-
 func (fixedLengthInteger) Get(bs []byte) uint64 {
 	return binary.LittleEndian.Uint64(byteAlignment(bs, 8))
 }
-
-//func (fixedLengthInteger) DumpUint16(v uint16) []byte {
-//	bs := make([]byte, 2)
-//	binary.LittleEndian.PutUint16(bs, v)
-//	return bs
-//}
-//
-//func (fixedLengthInteger) DumpUint32(v uint32) []byte {
-//	bs := make([]byte, 4)
-//	binary.LittleEndian.PutUint32(bs, v)
-//	return bs
-//}
 
 func (fixedLengthInteger) Dump(v uint64, len int) []byte {
 	switch len {
@@ -93,32 +37,6 @@ var LengthEncodedInteger lengthEncodedInteger
 
 // https://dev.mysql.com/doc/internals/en/integer.html#length-encoded-integer
 type lengthEncodedInteger struct{}
-
-//func (lengthEncodedInteger) Bind(r io.Reader, v interface{}) error {
-//	bs := make([]byte, 1)
-//	_, err := r.Read(bs)
-//	if err != nil {
-//		return err
-//	}
-//	var size int
-//	val := bs[0]
-//	if val < 0xfb {
-//		size = 1
-//	} else if val == 0xfc {
-//		size = 2
-//	} else if val == 0xfd {
-//		size = 3
-//	} else if val == 0xfe {
-//		size = 8
-//	}
-//
-//	bs = make([]byte, size)
-//	_, err := r.Read(bs)
-//	if err != nil {
-//		return err
-//	}
-//	binary.LittleEndian.
-//}
 
 func (lengthEncodedInteger) Get(r io.Reader) (uint64, error) {
 	bs := make([]byte, 1)
@@ -179,24 +97,6 @@ func byteAlignment(bs []byte, destLen int) []byte {
 	}
 	return dest
 }
-
-//type StringType byte
-//
-//const (
-//	FixedLengthString StringType   = iota
-//	NulTerminatedString
-//	VariableLengthString
-//	LengthEncodedString
-//	RestOfPacketString
-//)
-
-//var FixedLengthString fixedLengthString
-//
-//type fixedLengthString struct{}
-//
-//func (fixedLengthString) Get(bs []byte) []byte {
-//	return bs
-//}
 
 var NulTerminatedString nulTerminatedString
 
