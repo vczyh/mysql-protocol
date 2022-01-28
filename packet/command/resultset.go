@@ -6,6 +6,8 @@ import (
 	"github.com/vczyh/mysql-protocol/packet/generic"
 	"github.com/vczyh/mysql-protocol/packet/types"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -14,7 +16,7 @@ type TextResultSetRow struct {
 	Values []columnValue
 }
 
-func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition) (*TextResultSetRow, error) {
+func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.Location) (*TextResultSetRow, error) {
 	var p TextResultSetRow
 	var err error
 
@@ -25,7 +27,6 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition) (*TextResul
 
 	p.Values = make([]columnValue, len(columns))
 	rowData, pos := buf.Bytes(), 0
-
 	for i := range columns {
 		cv := columnValue{mysqlType: columns[i].ColumnType}
 
@@ -42,10 +43,116 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition) (*TextResul
 			}
 
 			pos += befLen - buf.Len()
-			rowData = buf.Bytes()
 		}
 
 		p.Values[i] = cv
+	}
+
+	// convert to Go type
+	for i := range p.Values {
+		cv := &p.Values[i]
+
+		if cv.IsNull() {
+			continue
+		}
+		val := string(cv.value.([]byte))
+
+		flags := columns[i].Flags
+		switch cv.mysqlType {
+		case generic.MySQLTypeTiny:
+			if flags&generic.UnsignedFlag != 0 {
+				newVal, err := strconv.ParseUint(val, 10, 8)
+				if err != nil {
+					return nil, err
+				}
+				cv.value = uint8(newVal)
+			} else {
+				newVal, err := strconv.ParseInt(val, 10, 8)
+				if err != nil {
+					return nil, err
+				}
+				cv.value = int8(newVal)
+			}
+
+		case generic.MySQLTypeShort, generic.MySQLTypeYear:
+			if flags&generic.UnsignedFlag != 0 {
+				newVal, err := strconv.ParseUint(val, 10, 16)
+				if err != nil {
+					return nil, err
+				}
+				cv.value = uint16(newVal)
+			} else {
+				newVal, err := strconv.ParseInt(val, 10, 16)
+				if err != nil {
+					return nil, err
+				}
+				cv.value = int16(newVal)
+			}
+
+		case generic.MySQLTypeInt24, generic.MySQLTypeLong:
+			if flags&generic.UnsignedFlag != 0 {
+				newVal, err := strconv.ParseUint(val, 10, 32)
+				if err != nil {
+					return nil, err
+				}
+				cv.value = uint32(newVal)
+			} else {
+				newVal, err := strconv.ParseInt(val, 10, 32)
+				if err != nil {
+					return nil, err
+				}
+				cv.value = int32(newVal)
+			}
+
+		case generic.MySQLTypeLongLong:
+			if flags&generic.UnsignedFlag != 0 {
+				cv.value, err = strconv.ParseUint(val, 10, 64)
+			} else {
+				cv.value, err = strconv.ParseInt(val, 10, 64)
+			}
+			if err != nil {
+				return nil, err
+			}
+
+		case generic.MySQLTypeFloat:
+			newVal, err := strconv.ParseFloat(val, 32)
+			if err != nil {
+				return nil, err
+			}
+			cv.value = float32(newVal)
+
+		case generic.MySQLTypeDouble:
+			cv.value, err = strconv.ParseFloat(val, 32)
+			if err != nil {
+				return nil, err
+			}
+
+		case generic.MySQLTypeVarchar,
+			generic.MySQLTypeBit,
+			generic.MySQLTypeEnum,
+			generic.MySQLTypeSet,
+			generic.MySQLTypeTinyBlob, generic.MySQLTypeMediumBlob, generic.MySQLTypeLongBlob, generic.MySQLTypeBlob,
+			generic.MySQLTypeVarString, generic.MySQLTypeString,
+			generic.MySQLTypeDecimal, generic.MySQLTypeNewDecimal:
+			cv.value = []byte(val)
+
+		case generic.MySQLTypeDate, generic.MySQLTypeDatetime, generic.MySQLTypeTimestamp:
+			dt, err := parseDatetime(val, loc)
+			if err != nil {
+				return nil, err
+			}
+			cv.value = *dt
+
+		case generic.MySQLTypeTime:
+			t, err := parseTime(val)
+			if err != nil {
+				return nil, err
+			}
+			cv.value = t
+
+		default:
+			return nil, fmt.Errorf("not supported mysql type: %s", cv.mysqlType)
+		}
 	}
 
 	return &p, nil
@@ -244,4 +351,88 @@ func (v *columnValue) Value() interface{} {
 func (v *columnValue) String() string {
 	// TODO implement
 	return ""
+}
+
+func parseDatetime(datetime string, loc *time.Location) (*time.Time, error) {
+	switch len(datetime) {
+
+	// only date: 2021-01-24
+	case 10:
+		dt, err := time.ParseInLocation("2006-01-02", datetime, loc)
+		return &dt, err
+
+	// with time: 2006-01-02 15:04:05
+	case 19:
+		dt, err := time.ParseInLocation("2006-01-02 15:04:05", datetime, loc)
+		return &dt, err
+
+	// with microsecond: 2006-01-02 15:04:05.000000
+	case 21, 22, 23, 24, 25, 26:
+		layout := "2006-01-02 15:04:05."
+		for i := 0; i < len(datetime)-20; i++ {
+			layout += "0"
+		}
+		dt, err := time.ParseInLocation(layout, datetime, loc)
+		return &dt, err
+
+	default:
+		return nil, fmt.Errorf("can't parse datetime string: %s", datetime)
+	}
+}
+
+func parseTime(t string) (int64, error) {
+	buf := bytes.NewBuffer([]byte(t))
+
+	hoursData, err := buf.ReadString(':')
+	if err != nil {
+		return 0, err
+	}
+	hoursData = strings.Trim(hoursData, ":")
+	minusData, err := buf.ReadString(':')
+	if err != nil {
+		return 0, err
+	}
+	minusData = strings.Trim(minusData, ":")
+	secsData := string(buf.Next(2))
+	var microSecsData string
+	if buf.Len() > 0 {
+		buf.Next(1)
+		microSecsData = string(buf.Bytes())
+	}
+
+	var isNegative bool
+	if len(hoursData) > 0 && hoursData[0] == '-' {
+		isNegative = true
+		hoursData = hoursData[1:]
+	}
+
+	hours, err := strconv.ParseInt(hoursData, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	minus, err := strconv.ParseInt(minusData, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	secs, err := strconv.ParseInt(secsData, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	var microSecs int64
+	if microSecsData != "" {
+		if microSecs, err = strconv.ParseInt(microSecsData, 10, 64); err != nil {
+			return 0, err
+		}
+	}
+
+	sum := time.Duration(hours)*time.Hour +
+		time.Duration(minus)*time.Minute +
+		time.Duration(secs)*time.Second +
+		time.Duration(microSecs)*time.Microsecond
+
+	if isNegative {
+		sum = -sum
+	}
+
+	return int64(sum), nil
 }
