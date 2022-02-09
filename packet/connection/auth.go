@@ -37,14 +37,3 @@ func ParseAuthSwitchRequest(data []byte) (*AuthSwitchRequest, error) {
 
 	return &p, nil
 }
-
-//func (p *AuthSwitchRequest) GetPlugin() generic.AuthenticationPlugin {
-//	switch string(p.PluginName) {
-//	case generic.MySQLNativePasswordPlugin.String():
-//		return generic.MySQLNativePasswordPlugin
-//	case generic.CachingSHA2PasswordPlugin.String():
-//		return generic.CachingSHA2PasswordPlugin
-//	default:
-//		return generic.MySQLNativePasswordPlugin
-//	}
-//}

@@ -6,14 +6,22 @@ import (
 	"github.com/vczyh/mysql-protocol/packet/generic"
 	"github.com/vczyh/mysql-protocol/packet/types"
 	"math"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// TextResultSetRow https://dev.mysql.com/doc/internals/en/com-query-response.html#packet-ProtocolText::ResultsetRow
 type TextResultSetRow struct {
 	generic.Header
-	Values []columnValue
+	Values []ColumnValue
+}
+
+func NewTextResultSetRow(row []ColumnValue) *TextResultSetRow {
+	return &TextResultSetRow{
+		Values: row,
+	}
 }
 
 func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.Location) (*TextResultSetRow, error) {
@@ -25,10 +33,10 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 		return nil, err
 	}
 
-	p.Values = make([]columnValue, len(columns))
+	p.Values = make([]ColumnValue, len(columns))
 	rowData, pos := buf.Bytes(), 0
 	for i := range columns {
-		cv := columnValue{mysqlType: columns[i].ColumnType}
+		cv := ColumnValue{mysqlType: columns[i].ColumnType}
 
 		if rowData[pos] == 0xfb {
 			cv.isNull = true
@@ -122,7 +130,7 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 			cv.value = float32(newVal)
 
 		case generic.MySQLTypeDouble:
-			cv.value, err = strconv.ParseFloat(val, 32)
+			cv.value, err = strconv.ParseFloat(val, 64)
 			if err != nil {
 				return nil, err
 			}
@@ -158,12 +166,36 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 	return &p, nil
 }
 
+func (p *TextResultSetRow) Dump(capabilities generic.CapabilityFlag) ([]byte, error) {
+	var payload bytes.Buffer
+
+	for _, val := range p.Values {
+		valDump, err := val.DumpText()
+		if err != nil {
+			return nil, err
+		}
+		payload.Write(valDump)
+	}
+
+	p.Length = uint32(payload.Len())
+
+	dump := make([]byte, 3+1+p.Length)
+	headerDump, err := p.Header.Dump(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	copy(dump, headerDump)
+	copy(dump[4:], payload.Bytes())
+
+	return dump, nil
+}
+
 type BinaryResultSetRow struct {
 	generic.Header
 
 	PktHeader  byte
 	NullBitMap []byte
-	Values     []columnValue
+	Values     []ColumnValue
 }
 
 func ParseBinaryResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.Location) (*BinaryResultSetRow, error) {
@@ -183,10 +215,10 @@ func ParseBinaryResultSetRow(data []byte, columns []*ColumnDefinition, loc *time
 	nullBitMapLen := (columnCount + 7 + 2) >> 3
 	p.NullBitMap = buf.Next(nullBitMapLen)
 
-	p.Values = make([]columnValue, columnCount)
+	p.Values = make([]ColumnValue, columnCount)
 	for i := range columns {
 		// TODO convert
-		cv := columnValue{mysqlType: columns[i].ColumnType}
+		cv := ColumnValue{mysqlType: columns[i].ColumnType}
 
 		if p.NullBitMapGet(i) {
 			cv.isNull = true
@@ -334,23 +366,73 @@ func (p *BinaryResultSetRow) NullBitMapGet(index int) bool {
 	return (p.NullBitMap[bytePos]>>bitPos)&1 != 0
 }
 
-type columnValue struct {
+type ColumnValue struct {
 	isNull    bool
 	value     interface{}
 	mysqlType generic.TableColumnType
 }
 
-func (v *columnValue) IsNull() bool {
+func NewColumnValue(isNull bool, val interface{}, mysqlType generic.TableColumnType) ColumnValue {
+	return ColumnValue{
+		isNull:    isNull,
+		value:     val,
+		mysqlType: mysqlType,
+	}
+}
+
+func (v *ColumnValue) IsNull() bool {
 	return v.isNull
 }
 
-func (v *columnValue) Value() interface{} {
+func (v *ColumnValue) Value() interface{} {
 	return v.value
 }
 
-func (v *columnValue) String() string {
+func (v *ColumnValue) String() string {
 	// TODO implement
 	return ""
+}
+
+func (v *ColumnValue) DumpText() ([]byte, error) {
+	if v.isNull {
+		return []byte{0xfb}, nil
+	}
+
+	switch value := v.value.(type) {
+	case time.Time:
+		timeStr := value.Format("2006-01-02 15:04:05.000000")
+		return types.LengthEncodedString.Dump([]byte(timeStr)), nil
+	}
+
+	var val string
+	rv := reflect.ValueOf(v.value)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		val = strconv.FormatInt(rv.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		val = strconv.FormatUint(rv.Uint(), 10)
+	case reflect.Float32:
+		val = strconv.FormatFloat(rv.Float(), 'f', -1, 32)
+	case reflect.Float64:
+		val = strconv.FormatFloat(rv.Float(), 'f', -1, 64)
+	case reflect.Slice:
+		ek := rv.Type().Elem().Kind()
+		if ek != reflect.Uint8 {
+			return nil, fmt.Errorf("unsupported type %T, a slice of %s", v.value, ek)
+		}
+		val = string(rv.Bytes())
+	case reflect.String:
+		val = rv.String()
+	default:
+		return nil, fmt.Errorf("unsupported type %T", v.value)
+	}
+
+	return types.LengthEncodedString.Dump([]byte(val)), nil
+}
+
+func (v *ColumnValue) DumpBinary() []byte {
+	// TODO
+	return nil
 }
 
 func parseDatetime(datetime string, loc *time.Location) (*time.Time, error) {

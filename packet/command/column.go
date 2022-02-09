@@ -23,6 +23,8 @@ type ColumnDefinition struct {
 	ColumnType   generic.TableColumnType
 	Flags        generic.ColumnDefinitionFlag
 	Decimals     uint8
+
+	// TODO command was COM_FIELD_LIST
 }
 
 func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
@@ -85,4 +87,44 @@ func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
 	buf.Next(2)
 
 	return &p, nil
+}
+
+func (p *ColumnDefinition) Dump(capabilities generic.CapabilityFlag) ([]byte, error) {
+	var payload bytes.Buffer
+
+	if p.Catalog == "" {
+		p.Catalog = "def"
+	}
+	payload.Write(types.LengthEncodedString.Dump([]byte(p.Catalog)))
+
+	payload.Write(types.LengthEncodedString.Dump([]byte(p.Schema)))
+	payload.Write(types.LengthEncodedString.Dump([]byte(p.Table)))
+	payload.Write(types.LengthEncodedString.Dump([]byte(p.OrgTable)))
+	payload.Write(types.LengthEncodedString.Dump([]byte(p.Name)))
+	payload.Write(types.LengthEncodedString.Dump([]byte(p.OrgName)))
+
+	if p.NextLength == 0 {
+		p.NextLength = 0x0c
+	}
+	payload.Write(types.LengthEncodedInteger.Dump(p.NextLength))
+
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.CharacterSet.Id), 2))
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.ColumnLength), 4))
+	payload.WriteByte(byte(p.ColumnType))
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.Flags), 2))
+	payload.WriteByte(p.Decimals)
+
+	payload.Write([]byte{0x00, 0x00})
+
+	p.Length = uint32(payload.Len())
+
+	dump := make([]byte, 3+1+p.Length)
+	headerDump, err := p.Header.Dump(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	copy(dump, headerDump)
+	copy(dump[4:], payload.Bytes())
+
+	return dump, nil
 }

@@ -2,6 +2,7 @@ package generic
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/vczyh/mysql-protocol/packet/types"
 )
 
@@ -10,10 +11,20 @@ type ERR struct {
 	Header
 
 	ERRHeader      uint8
-	ErrorCode      uint16
+	ErrorCode      Code
 	SqlStateMarker byte
-	SqlState       []byte
-	ErrorMessage   []byte
+	SqlState       string
+	ErrorMessage   string
+}
+
+func NewERR(code Code, sqlState, message string) *ERR {
+	return &ERR{
+		ERRHeader:      0xff,
+		ErrorCode:      code,
+		SqlStateMarker: 0,
+		SqlState:       sqlState,
+		ErrorMessage:   message,
+	}
 }
 
 func ParseERR(bs []byte, capabilities CapabilityFlag) (*ERR, error) {
@@ -33,24 +44,52 @@ func ParseERR(bs []byte, capabilities CapabilityFlag) (*ERR, error) {
 	p.ERRHeader = buf.Next(1)[0]
 
 	// Error Code
-	p.ErrorCode = uint16(types.FixedLengthInteger.Get(buf.Next(2)))
+	p.ErrorCode = Code(types.FixedLengthInteger.Get(buf.Next(2)))
 
 	if capabilities&ClientProtocol41 != 0 {
 		if buf.Len() == 0 {
 			return nil, ErrPacketData
 		}
-		// Sql State Marker
+		// SQL State Marker
 		p.SqlStateMarker = buf.Next(1)[0]
-		// Sql State
-		p.SqlState = buf.Next(5)
+		// SQL State
+		p.SqlState = string(buf.Next(5))
 	}
 
 	// Error Message
-	p.ErrorMessage = buf.Bytes()
+	p.ErrorMessage = buf.String()
 
 	return &p, nil
 }
 
+func (e *ERR) Dump(capabilities CapabilityFlag) ([]byte, error) {
+	var payload bytes.Buffer
+	// ERR Header
+	payload.WriteByte(e.ERRHeader)
+
+	// Error Code
+	payload.Write(types.FixedLengthInteger.Dump(uint64(e.ErrorCode), 2))
+
+	if capabilities&ClientProtocol41 != 0 {
+		payload.WriteByte(e.SqlStateMarker)
+		payload.WriteString(e.SqlState)
+	}
+
+	payload.WriteString(e.ErrorMessage)
+
+	e.Length = uint32(payload.Len())
+
+	dump := make([]byte, 3+1+e.Length)
+	headerDump, err := e.Header.Dump(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	copy(dump, headerDump)
+	copy(dump[4:], payload.Bytes())
+
+	return dump, nil
+}
+
 func (e *ERR) Error() string {
-	return string(e.ErrorMessage)
+	return fmt.Sprintf("ERROR %d (%s): %s", e.ErrorCode, e.SqlState, e.ErrorMessage)
 }

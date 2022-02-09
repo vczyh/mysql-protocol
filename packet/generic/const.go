@@ -166,7 +166,7 @@ const (
 	ClientLongPassword               CapabilityFlag = 0x00000001
 	ClientFoundRows                                 = 0x00000002
 	ClientLongFlag                                  = 0x00000004
-	ClientConnectWithDb                             = 0x00000008
+	ClientConnectWithDB                             = 0x00000008
 	ClientNoSchema                                  = 0x00000010
 	ClientCompress                                  = 0x00000020
 	ClientODBC                                      = 0x00000040
@@ -187,7 +187,7 @@ const (
 	ClientPluginAuthLenencClientData                = 0x00200000
 	ClientCanHandleExpiredPasswords                 = 0x00400000
 	ClientSessionTrack                              = 0x00800000
-	ClientDeprecateEof                              = 0x01000000
+	ClientDeprecateEOF                              = 0x01000000
 )
 
 func (c CapabilityFlag) String() string {
@@ -198,7 +198,7 @@ func (c CapabilityFlag) String() string {
 		return "CLIENT_FOUND_ROWS"
 	case ClientLongFlag:
 		return "CLIENT_LONG_FLAG"
-	case ClientConnectWithDb:
+	case ClientConnectWithDB:
 		return "CLIENT_CONNECT_WITH_DB"
 	case ClientNoSchema:
 		return "CLIENT_NO_SCHEMA"
@@ -240,7 +240,7 @@ func (c CapabilityFlag) String() string {
 		return "CLIENT_CAN_HANDLE_EXPIRED_PASSWORDS"
 	case ClientSessionTrack:
 		return "CLIENT_SESSION_TRACK"
-	case ClientDeprecateEof:
+	case ClientDeprecateEOF:
 		return "CLIENT_DEPRECATE_EOF"
 	default:
 		return "Unknown CapabilityFlag"
@@ -404,3 +404,15 @@ func (c Command) String() string {
 		return "Unknown Command"
 	}
 }
+
+type Code uint16
+
+// TODO
+// https://dev.mysql.com/doc/mysql-errors/8.0/en/server-error-reference.html
+const (
+	ErrNo                Code = 1002
+	ErrYes               Code = 1003
+	ErrAccessDeniedError Code = 1045
+
+	Err Code = 50000
+)

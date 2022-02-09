@@ -57,14 +57,14 @@ func ParseOk(bs []byte, capabilities CapabilityFlag) (*OK, error) {
 	}
 
 	// Status Flags
-	if capabilities&ClientProtocol41 != 0x00000000 {
+	if capabilities&ClientProtocol41 != 0 {
 		p.StatusFlags = StatusFlag(uint16(types.FixedLengthInteger.Get(buf.Next(2))))
 		p.WarningCount = uint16(types.FixedLengthInteger.Get(buf.Next(2)))
-	} else if capabilities&ClientTransactions != 0x00000000 {
+	} else if capabilities&ClientTransactions != 0 {
 		p.StatusFlags = StatusFlag(uint16(types.FixedLengthInteger.Get(buf.Next(2))))
 	}
 
-	if capabilities&ClientSessionTrack != 0x00000000 {
+	if capabilities&ClientSessionTrack != 0 {
 		// Info
 		if p.Info, err = types.LengthEncodedString.Get(buf); err != nil {
 			return nil, err
@@ -72,7 +72,7 @@ func ParseOk(bs []byte, capabilities CapabilityFlag) (*OK, error) {
 
 		// todo
 		// Session State Changes
-		if p.StatusFlags&ServerSessionStateChanged != 0x00000000 {
+		if p.StatusFlags&ServerSessionStateChanged != 0 {
 			if p.SessionStateChanges, err = types.LengthEncodedString.Get(buf); err != nil {
 				return nil, err
 			}
@@ -83,4 +83,44 @@ func ParseOk(bs []byte, capabilities CapabilityFlag) (*OK, error) {
 	}
 
 	return &p, nil
+}
+
+func (p *OK) Dump(capabilities CapabilityFlag) ([]byte, error) {
+	var payload bytes.Buffer
+	payload.WriteByte(p.OKHeader)
+	payload.Write(types.LengthEncodedInteger.Dump(p.AffectedRows))
+	payload.Write(types.LengthEncodedInteger.Dump(p.LastInsertId))
+
+	if capabilities&ClientProtocol41 != 0 {
+		payload.Write(types.FixedLengthInteger.Dump(uint64(p.StatusFlags), 2))
+		payload.Write(types.FixedLengthInteger.Dump(uint64(p.WarningCount), 2))
+	} else if capabilities&ClientTransactions != 0 {
+		payload.Write(types.FixedLengthInteger.Dump(uint64(p.StatusFlags), 2))
+	}
+
+	if capabilities&ClientSessionTrack != 0 {
+		// Info
+		payload.Write(types.LengthEncodedString.Dump(p.Info))
+
+		// todo
+		// Session State Changes
+		if p.StatusFlags&ServerSessionStateChanged != 0 {
+			payload.Write(types.LengthEncodedString.Dump(p.SessionStateChanges))
+		}
+	} else {
+		// Info
+		payload.Write(p.Info)
+	}
+
+	p.Length = uint32(payload.Len())
+
+	dump := make([]byte, 3+1+p.Length)
+	headerDump, err := p.Header.Dump(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	copy(dump, headerDump)
+	copy(dump[4:], payload.Bytes())
+
+	return dump, nil
 }

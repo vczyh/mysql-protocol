@@ -12,7 +12,7 @@ var (
 
 type Packet interface {
 	SetSequence(int)
-	Dump() []byte
+	Dump(CapabilityFlag) ([]byte, error)
 }
 
 type Header struct {
@@ -36,24 +36,28 @@ func (h *Header) SetSequence(seq int) {
 	h.Seq = uint8(seq)
 }
 
-func (h *Header) Dump() []byte {
+func (h *Header) Dump(CapabilityFlag) ([]byte, error) {
 	bs := types.FixedLengthInteger.Dump(uint64(h.Length), 3)
 	bs = append(bs, types.FixedLengthInteger.Dump(uint64(h.Seq), 1)...)
-	return bs
+	return bs, nil
 }
 
 type Simple struct {
 	Header
-	Data []byte
+	Payload []byte
 }
 
-func NewSimple(data []byte) *Simple {
+func NewSimple(payload []byte) *Simple {
 	return &Simple{
-		Data: data,
+		Payload: payload,
 	}
 }
 
-func (p *Simple) Dump() []byte {
-	p.Header.Length = uint32(len(p.Data))
-	return append(p.Header.Dump(), p.Data...)
+func (p *Simple) Dump(capabilities CapabilityFlag) ([]byte, error) {
+	p.Header.Length = uint32(len(p.Payload))
+	headerDump, err := p.Header.Dump(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	return append(headerDump, p.Payload...), nil
 }

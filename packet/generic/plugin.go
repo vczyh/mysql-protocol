@@ -20,7 +20,7 @@ func ParseAuthenticationPlugin(name string) (AuthenticationPlugin, error) {
 	case CachingSHA2PasswordPlugin.String():
 		return CachingSHA2PasswordPlugin, nil
 	default:
-		return MySQLNativePasswordPlugin, fmt.Errorf("unknown auth plugin")
+		return MySQLNativePasswordPlugin, fmt.Errorf("unknown auth plugin: %v", name)
 	}
 }
 

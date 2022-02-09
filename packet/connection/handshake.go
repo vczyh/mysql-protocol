@@ -110,7 +110,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	}
 
 	// Auth Plugin Name
-	if capabilities&generic.ClientPluginAuth != 0x00000000 {
+	if capabilities&generic.ClientPluginAuth != 0 {
 		pluginName, err := types.NulTerminatedString.Get(buf)
 		if err != nil {
 			return nil, err
@@ -124,12 +124,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 }
 
 func (p *Handshake) GetCapabilities() generic.CapabilityFlag {
-	// TODO
-	var capabilitiesBs = make([]byte, 4)
-	binary.LittleEndian.PutUint16(capabilitiesBs, uint16(p.CapabilityFlags))
-	binary.LittleEndian.PutUint16(capabilitiesBs[2:], uint16(p.ExtendedCapabilityFlags))
-	capabilities := binary.LittleEndian.Uint32(capabilitiesBs)
-	return generic.CapabilityFlag(capabilities)
+	return p.CapabilityFlags | p.ExtendedCapabilityFlags
 }
 
 func (p *Handshake) GetAuthData() []byte {
@@ -139,6 +134,76 @@ func (p *Handshake) GetAuthData() []byte {
 	copy(salt, salt1)
 	copy(salt[len(salt1):], salt2[:len(salt2)-1])
 	return salt
+}
+
+func (p *Handshake) SetCapabilities(capabilities generic.CapabilityFlag) {
+	p.CapabilityFlags = capabilities & 0x0000ffff
+	p.ExtendedCapabilityFlags = capabilities & 0xffff0000
+}
+
+func (p *Handshake) Dump(capabilities generic.CapabilityFlag) ([]byte, error) {
+	var payload bytes.Buffer
+	// Protocol Version
+	payload.WriteByte(p.ProtocolVersion)
+
+	// Server Version
+	payload.Write(types.NulTerminatedString.Dump([]byte(p.ServerVersion)))
+
+	// Connection ID
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.ConnectionId), 4))
+
+	// Auth Plugin Name Part1
+	payload.Write(p.Salt1)
+
+	// Filler
+	payload.WriteByte(0x00)
+
+	// Capability Flags
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.CapabilityFlags), 2))
+
+	// Character Set
+	payload.WriteByte(p.CharacterSet.Id)
+
+	// Status Flags
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.StatusFlags), 2))
+
+	// ExtendedCapabilityFlags
+	payload.Write(types.FixedLengthInteger.Dump(uint64(p.ExtendedCapabilityFlags>>16), 2))
+
+	// Length of auth-plugin-data
+	if capabilities&generic.ClientPluginAuth != 0 {
+		p.AuthPluginDataLen = uint8(len(p.Salt2) + 8)
+	} else {
+		p.AuthPluginDataLen = 0x00
+	}
+	payload.WriteByte(p.AuthPluginDataLen)
+
+	// Reserved
+	for i := 0; i < 10; i++ {
+		payload.WriteByte(0x00)
+	}
+
+	// Auth Plugin Name Part2
+	if capabilities&generic.ClientSecureConnection != 0 {
+		payload.Write(p.Salt2)
+	}
+
+	// Auth Plugin Name
+	if capabilities&generic.ClientPluginAuth != 0 {
+		payload.Write(types.NulTerminatedString.Dump([]byte(p.AuthPlugin.String())))
+	}
+
+	p.Length = uint32(payload.Len())
+
+	dump := make([]byte, 3+1+p.Length)
+	headerDump, err := p.Header.Dump(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	copy(dump, headerDump)
+	copy(dump[4:], payload.Bytes())
+
+	return dump, nil
 }
 
 // HandshakeResponse https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::HandshakeResponse
@@ -205,7 +270,11 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 		}
 		p.AuthRes = buf.Next(int(l))
 	} else if p.ClientCapabilityFlags&generic.ClientSecureConnection != 0 {
-		p.AuthRes = buf.Next(1)
+		if buf.Len() == 0 {
+			return nil, generic.ErrPacketData
+		}
+		l := buf.Next(1)[0]
+		p.AuthRes = buf.Next(int(l))
 	} else {
 		if p.AuthRes, err = types.NulTerminatedString.Get(buf); err != nil {
 			return nil, err
@@ -213,7 +282,7 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 	}
 
 	// Database
-	if p.ClientCapabilityFlags&generic.ClientConnectWithDb != 0 {
+	if p.ClientCapabilityFlags&generic.ClientConnectWithDB != 0 {
 		if p.Database, err = types.NulTerminatedString.Get(buf); err != nil {
 			return nil, err
 		}
@@ -255,7 +324,7 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 	return &p, nil
 }
 
-func (p *HandshakeResponse) Dump() []byte {
+func (p *HandshakeResponse) Dump(capabilities generic.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 	// Max Packet Size
 	payload.Write(types.FixedLengthInteger.Dump(uint64(p.MaxPacketSize), 4))
@@ -281,7 +350,7 @@ func (p *HandshakeResponse) Dump() []byte {
 	payload.Write(p.AuthRes)
 
 	// Database
-	if p.ClientCapabilityFlags&generic.ClientConnectWithDb != 0 {
+	if p.ClientCapabilityFlags&generic.ClientConnectWithDB != 0 {
 		payload.Write(types.NulTerminatedString.Dump(p.Database))
 	}
 
@@ -300,20 +369,28 @@ func (p *HandshakeResponse) Dump() []byte {
 	}
 
 	// Client Capability Flags
-	capabilities := types.FixedLengthInteger.Dump(uint64(p.ClientCapabilityFlags), 4)
-	payloadBs := append(capabilities, payload.Bytes()...)
+	clientCapabilities := types.FixedLengthInteger.Dump(uint64(p.ClientCapabilityFlags), 4)
+	payloadBs := append(clientCapabilities, payload.Bytes()...)
 
 	p.Length = uint32(len(payloadBs))
 
 	dump := make([]byte, 3+1+p.Length)
-	copy(dump, p.Header.Dump())
+	headerDump, err := p.Header.Dump(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	copy(dump, headerDump)
 	copy(dump[4:], payloadBs)
 
-	return dump
+	return dump, nil
 }
 
 func (p *HandshakeResponse) AddAttribute(key string, val string) {
 	p.Attributes = append(p.Attributes, Attribute{key, val})
 	p.AttributeLen += uint64(len(types.LengthEncodedString.Dump([]byte(key))))
 	p.AttributeLen += uint64(len(types.LengthEncodedString.Dump([]byte(val))))
+}
+
+func (p *HandshakeResponse) GetUsername() string {
+	return string(p.Username)
 }

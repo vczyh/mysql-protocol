@@ -19,3 +19,7 @@ func ParseQueryResponse(data []byte) (uint64, error) {
 	columnCount, err := types.LengthEncodedInteger.Get(buf)
 	return columnCount, err
 }
+
+func NewColumnCount(count int) (generic.Packet, error) {
+	return generic.NewSimple(types.LengthEncodedInteger.Dump(uint64(count))), nil
+}

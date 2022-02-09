@@ -54,3 +54,15 @@ func IsLocalInfileRequest(data []byte) bool {
 	}
 	return data[4] == LocalInfileRequest
 }
+
+func IsPing(data []byte) bool {
+	return len(data) == 5 && data[4] == ComPing
+}
+
+func IsQuery(data []byte) bool {
+	return len(data) > 4 && data[4] == ComQuery
+}
+
+func IsQuit(data []byte) bool {
+	return len(data) == 5 && data[4] == ComQuit
+}

@@ -208,14 +208,14 @@ func (c *conn) ReadUntilEOFPacket() error {
 func (c *conn) WritePacket(packet generic.Packet) error {
 	c.sequence++
 	packet.SetSequence(int(c.sequence))
-	_, err := c.subConn.Write(packet.Dump())
+	_, err := c.subConn.Write(packet.Dump(0))
 	return err
 }
 
 func (c *conn) WriteCommandPacket(pkt generic.Packet) error {
 	c.sequence = 0
 	pkt.SetSequence(int(c.sequence))
-	_, err := c.subConn.Write(pkt.Dump())
+	_, err := c.subConn.Write(pkt.Dump(0))
 	return err
 }
 
