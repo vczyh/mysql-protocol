@@ -32,13 +32,12 @@ if err := conn.Ping(); err != nil {
 ## Server
 
 ```go
-srv := NewServer(
-  NewTestHandler(),
-  WithHost("0.0.0.0"),
-  WithPort(3306),
-  WithUser("root"),
-  WithPassword("root"),
-  WithVersion("8.0.25"))
+srv := server.NewServer(
+  server.NewDefaultHandler(),
+  server.WithHost("0.0.0.0"),
+  server.WithPort(3306),
+  server.WithUser("root"),
+  server.WithPassword("root"))
 
 if err := srv.Start(); err != nil {
   // handle error
