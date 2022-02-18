@@ -76,6 +76,6 @@ func (h *DefaultHandler) OnConnect(connId uint32) {
 	// empty implement
 }
 
-func (h *DefaultHandler) OnClose() {
+func (h *DefaultHandler) OnClose(connId uint32) {
 	// empty implement
 }
