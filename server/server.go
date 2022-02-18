@@ -1,19 +1,32 @@
 package server
 
 import (
+	"crypto/rand"
+	"crypto/tls"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/core"
 	"github.com/vczyh/mysql-protocol/mysql"
-	"github.com/vczyh/mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/packet"
 	"log"
+	"math/big"
 	"net"
 )
 
 type server struct {
+	h Handler
+
 	host     string
 	port     int
 	user     string
 	password string
-	h        Handler
+	version  string
+	plugin   core.AuthenticationPlugin
+
+	useSSL    bool
+	sslCA     string
+	sslCert   string
+	sslKey    string
+	tlsConfig *tls.Config
 
 	l net.Listener
 }
@@ -33,7 +46,12 @@ func (s *server) Start() error {
 	if err != nil {
 		return err
 	}
+	defer l.Close()
 	s.l = l
+
+	if err := s.buildTLSConfig(); err != nil {
+		return err
+	}
 
 	for {
 		conn, err := s.l.Accept()
@@ -43,18 +61,19 @@ func (s *server) Start() error {
 			continue
 		}
 
-		mysqlConn, err := mysql.NewConnection(conn, s.defaultCapabilities())
+		connId, err := s.applyForConnectionId()
 		if err != nil {
 			// TODO log error
 			log.Printf("create mysql connection error: %v", err)
 			continue
 		}
-		go s.handleConnection(mysqlConn)
+
+		go s.handleConnection(mysql.NewServerConnection(conn, connId, s.defaultCapabilities()))
 	}
 }
 
 func (s *server) handleConnection(conn mysql.Conn) {
-	defer conn.Close()
+	defer s.closeConnection(conn)
 
 	if err := s.auth(conn); err != nil {
 		// TOOD log
@@ -66,10 +85,9 @@ func (s *server) handleConnection(conn mysql.Conn) {
 		if conn.Closed() {
 			return
 		}
-
 		if err := s.handleCommand(conn); err != nil {
 			// TODO log
-			log.Printf("can't handle error: %v, so close connection", err)
+			log.Printf("can't handle command error: %v, so close connection", err)
 			return
 		}
 	}
@@ -82,24 +100,24 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 	}
 
 	switch {
-	case generic.IsPing(data):
-		mysqlErr := s.h.Ping()
-		if mysqlErr == nil {
+	case packet.IsPing(data):
+		err := s.h.Ping()
+		if err == nil {
 			err = conn.WriteEmptyOK()
 		} else {
-			err = conn.WritePacket(mysqlErr.Packet())
+			err = conn.WriteError(err)
 		}
 
-	case generic.IsQuery(data):
-		rs, mysqlErr := s.h.Query(string(data[5:]))
-		if mysqlErr != nil {
-			err = conn.WritePacket(mysqlErr.Packet())
+	case packet.IsQuery(data):
+		rs, err := s.h.Query(string(data[5:]))
+		if err != nil {
+			err = conn.WriteError(err)
 			break
 		}
 		err = rs.WriteText(conn)
 
-	case generic.IsQuit(data):
-		conn.Close()
+	case packet.IsQuit(data):
+		s.closeConnection(conn)
 		s.h.Quit()
 
 	default:
@@ -109,33 +127,49 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 	return err
 }
 
-func (s *server) defaultCapabilities() generic.CapabilityFlag {
-	capabilities := generic.ClientLongPassword |
-		generic.ClientFoundRows |
-		generic.ClientLongFlag |
-		generic.ClientConnectWithDB |
-		generic.ClientNoSchema |
-		generic.ClientCompress |
-		generic.ClientODBC |
-		generic.ClientLocalFiles |
-		generic.ClientIgnoreSpace |
-		generic.ClientProtocol41 |
-		generic.ClientInteractive |
-		//generic.ClientSSL |
-		generic.ClientIgnoreSigpipe |
-		generic.ClientTransactions |
-		generic.ClientSecureConnection |
-		generic.ClientMultiStatements |
-		generic.ClientMultiResults |
-		generic.ClientPsMultiResults |
-		generic.ClientPluginAuth |
-		generic.ClientConnectAttrs |
-		generic.ClientPluginAuthLenencClientData |
-		generic.ClientCanHandleExpiredPasswords
+func (s *server) defaultCapabilities() core.CapabilityFlag {
+	capabilities := core.ClientLongPassword |
+		core.ClientFoundRows |
+		core.ClientLongFlag |
+		core.ClientConnectWithDB |
+		core.ClientNoSchema |
+		core.ClientCompress |
+		core.ClientODBC |
+		core.ClientLocalFiles |
+		core.ClientIgnoreSpace |
+		core.ClientProtocol41 |
+		core.ClientInteractive |
+		core.ClientSSL |
+		core.ClientIgnoreSigpipe |
+		core.ClientTransactions |
+		core.ClientSecureConnection |
+		core.ClientMultiStatements |
+		core.ClientMultiResults |
+		core.ClientPsMultiResults |
+		core.ClientPluginAuth |
+		core.ClientConnectAttrs |
+		core.ClientPluginAuthLenencClientData |
+		core.ClientCanHandleExpiredPasswords
 	//generic.ClientSessionTrack |
 	//generic.ClientDeprecateEOF
 
 	return capabilities
+}
+
+func (s *server) applyForConnectionId() (uint32, error) {
+	bigN, err := rand.Int(rand.Reader, big.NewInt(2<<32))
+	if err != nil {
+		return 0, err
+	}
+	return uint32(bigN.Uint64()), nil
+}
+
+func (s *server) closeConnection(conn mysql.Conn) {
+	if conn.Closed() {
+		return
+	}
+	conn.Close()
+	s.h.OnClose(conn.ConnectionId())
 }
 
 func WithHost(host string) Option {
@@ -159,6 +193,42 @@ func WithUser(user string) Option {
 func WithPassword(password string) Option {
 	return optionFun(func(s *server) {
 		s.password = password
+	})
+}
+
+func WithVersion(version string) Option {
+	return optionFun(func(s *server) {
+		s.version = version
+	})
+}
+
+func WithAuthPlugin(plugin core.AuthenticationPlugin) Option {
+	return optionFun(func(s *server) {
+		s.plugin = plugin
+	})
+}
+
+func WithUseSSL(useSSL bool) Option {
+	return optionFun(func(s *server) {
+		s.useSSL = useSSL
+	})
+}
+
+func WithSSLCA(sslCA string) Option {
+	return optionFun(func(s *server) {
+		s.sslCA = sslCA
+	})
+}
+
+func WithSSLCert(sslCert string) Option {
+	return optionFun(func(s *server) {
+		s.sslCert = sslCert
+	})
+}
+
+func WithSSLKey(sslKey string) Option {
+	return optionFun(func(s *server) {
+		s.sslKey = sslKey
 	})
 }
 

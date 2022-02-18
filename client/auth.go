@@ -7,11 +7,11 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/packet/connection"
-	"github.com/vczyh/mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/packet"
 )
 
-func (c *conn) auth(plugin generic.AuthenticationPlugin, authData []byte) error {
+func (c *conn) auth(plugin core.AuthenticationPlugin, authData []byte) error {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return err
@@ -19,10 +19,10 @@ func (c *conn) auth(plugin generic.AuthenticationPlugin, authData []byte) error 
 
 	var authSwitch bool
 	switch {
-	case generic.IsOK(data) || generic.IsErr(data):
-		return c.HandleOKErrPacket(data)
-	case generic.IsAuthSwitchRequest(data):
-		switchPkt, err := connection.ParseAuthSwitchRequest(data)
+	case packet.IsOK(data) || packet.IsErr(data):
+		return c.handleOKERRPacket(data)
+	case packet.IsAuthSwitchRequest(data):
+		switchPkt, err := packet.ParseAuthSwitchRequest(data)
 		if err != nil {
 			return err
 		}
@@ -42,21 +42,21 @@ func (c *conn) auth(plugin generic.AuthenticationPlugin, authData []byte) error 
 	}
 
 	switch {
-	case generic.IsOK(data) || generic.IsErr(data):
-		return c.HandleOKErrPacket(data)
-	case generic.IsAuthMoreData(data):
-		pluginData, err := connection.ParseAuthMoreData(data)
+	case packet.IsOK(data) || packet.IsErr(data):
+		return c.handleOKERRPacket(data)
+	case packet.IsAuthMoreData(data):
+		pluginData, err := packet.ParseAuthMoreData(data)
 		if err != nil {
 			return err
 		}
 		switch plugin {
 		// https://dev.mysql.com/blog-archive/preparing-your-community-connector-for-mysql-8-part-2-sha256/
 		// https://dev.mysql.com/doc/dev/mysql-server/latest/page_caching_sha2_authentication_exchanges.html
-		case generic.CachingSHA2PasswordPlugin:
+		case core.CachingSHA2PasswordPlugin:
 			switch pluginData[0] {
 			// fast authentication
 			case 0x03:
-				return c.ReadOKErrPacket()
+				return c.readOKERRPacket()
 			// full authentication
 			case 0x04:
 				// TODO if TLS
@@ -69,22 +69,22 @@ func (c *conn) auth(plugin generic.AuthenticationPlugin, authData []byte) error 
 				if err := c.writePasswordEncryptedWithPublicKeyPacket(pubKeyData, authData); err != nil {
 					return err
 				}
-				return c.ReadOKErrPacket()
+				return c.readOKERRPacket()
 			}
 		}
 	}
 
-	return generic.ErrPacketData
+	return packet.ErrPacketData
 }
 
-func (c *conn) writeAuthSwitchResponsePacket(plugin generic.AuthenticationPlugin, authData []byte) (err error) {
-	encryptedPassword, err := generic.EncryptPassword(plugin, []byte(c.password), authData)
-	authRes := connection.NewAuthSwitchResponse(encryptedPassword)
+func (c *conn) writeAuthSwitchResponsePacket(plugin core.AuthenticationPlugin, authData []byte) (err error) {
+	encryptedPassword, err := core.EncryptPassword(plugin, []byte(c.password), authData)
+	authRes := packet.NewAuthSwitchResponse(encryptedPassword)
 	return c.WritePacket(authRes)
 }
 
 func (c *conn) requestPublicKey() ([]byte, error) {
-	simplePkt := generic.NewSimple([]byte{0x02})
+	simplePkt := packet.NewSimple([]byte{0x02})
 	if err := c.WritePacket(simplePkt); err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (c *conn) requestPublicKey() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	pluginData, err := connection.ParseAuthMoreData(data)
+	pluginData, err := packet.ParseAuthMoreData(data)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +124,6 @@ func (c *conn) writePasswordEncryptedWithPublicKeyPacket(data []byte, seed []byt
 		return err
 	}
 
-	simplePkt := generic.NewSimple(encryptedPassword)
+	simplePkt := packet.NewSimple(encryptedPassword)
 	return c.WritePacket(simplePkt)
 }

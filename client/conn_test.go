@@ -1,7 +1,11 @@
 package client
 
 import (
+	"fmt"
+	"github.com/vczyh/mysql-protocol/core"
+	"io"
 	"log"
+	"math/rand"
 	"testing"
 )
 
@@ -13,12 +17,28 @@ func TestMain(m *testing.M) {
 		WithHost("10.0.44.59"),
 		WithPort(3306),
 		WithUser("root"),
-		WithPassword("Unicloud@1221"))
+		WithPassword("Unicloud@1221"),
+
+		WithCollation(core.Utf8mb40900AiCi),
+
+		WithUseSSL(true),
+		WithInsecureSkipVerify(true),
+		WithSSLCA("tmp/ca.pem"),
+		WithSSLCert("tmp/client-cert.pem"),
+		WithSSLKey("tmp/client-key.pem"),
+	)
 	if err != nil {
 		log.Fatalf("CreateConnection(): %v", err)
 	}
 
+	setup()
 	m.Run()
+	shutdown()
+}
+
+func setup() {}
+
+func shutdown() {
 	if err := c.Close(); err != nil {
 		log.Fatalf("Close(): %v", err)
 	}
@@ -27,5 +47,43 @@ func TestMain(m *testing.M) {
 func TestPing(t *testing.T) {
 	if err := c.Ping(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestExecute(t *testing.T) {
+	name := fmt.Sprintf("dbtest_%d", rand.Int())
+	rs, err := c.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", name))
+	if err != nil {
+		t.Fatalf("Exec(): %v", err)
+	}
+	t.Log(rs.AffectedRows(), rs.LastInsertId())
+
+	rs, err = c.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", name))
+	if err != nil {
+		t.Fatalf("Exec(): %v", err)
+	}
+	t.Log(rs.AffectedRows(), rs.LastInsertId())
+}
+
+func TestQuery(t *testing.T) {
+	//rows, err := c.Query("SELECT @@version_comment")
+	rows, err := c.Query("SHOW COLUMNS FROM mysql.user")
+	if err != nil {
+		t.Fatalf("Query(): %v", err)
+	}
+
+	for _, column := range rows.Columns() {
+		t.Log(column)
+	}
+
+	for {
+		row, err := rows.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatalf("rows.Next(): %v", err)
+		}
+		t.Log(row)
 	}
 }

@@ -1,46 +1,55 @@
 package client
 
 import (
-	"encoding/binary"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/packet/command"
-	"github.com/vczyh/mysql-protocol/packet/connection"
-	"github.com/vczyh/mysql-protocol/packet/generic"
+	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/mysql"
+	"github.com/vczyh/mysql-protocol/packet"
 	"net"
+	"time"
 )
 
 type Conn interface {
-	Capabilities() generic.CapabilityFlag
-	Status() generic.StatusFlag
-
+	Capabilities() core.CapabilityFlag
 	AffectedRows() uint64
 	LastInsertId() uint64
 
 	ReadPacket() ([]byte, error)
-	ReadOKErrPacket() error
-	ReadUntilEOFPacket() error
 
-	WritePacket(generic.Packet) error
-	WriteCommandPacket(generic.Packet) error
+	WritePacket(packet.Packet) error
+	WriteCommandPacket(packet.Packet) error
 
-	HandleOKErrPacket([]byte) error
+	Exec(string) (*mysql.Result, error)
+	Query(string) (Rows, error)
 
 	Ping() error
 	Close() error
 }
 
+const (
+	maxPacketSize = 1<<24 - 1
+)
+
+var defaultCollation = core.Utf8mb4GeneralCi
+
 type conn struct {
-	host     string
-	port     int
-	user     string
-	password string
-	attrs    map[string]string
+	host      string
+	port      int
+	user      string
+	password  string
+	loc       *time.Location
+	attrs     map[string]string
+	collation *core.Collation
 
-	subConn
-	sequence uint8
+	useSSL             bool
+	insecureSkipVerify bool
+	sslCA              string
+	sslCert            string
+	sslKey             string
 
-	capabilities generic.CapabilityFlag
-	status       generic.StatusFlag
+	mysqlConn mysql.Conn
+
+	status       core.StatusFlag
 	affectedRows uint64
 	lastInsertId uint64
 }
@@ -53,136 +62,121 @@ func CreateConnection(opts ...Option) (Conn, error) {
 		opt.apply(c)
 	}
 
-	c.conn, err = net.Dial("tcp", fmt.Sprintf("%s:%d", c.host, c.port))
+	if c.loc == nil {
+		c.loc = time.Local
+	}
+	if c.collation == nil {
+		c.collation = defaultCollation
+	}
+
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.host, c.port))
 	if err != nil {
 		return nil, err
 	}
 
+	c.mysqlConn = mysql.NewClientConnection(conn, c.defaultCapabilities())
 	return c, c.dial()
 }
 
 func (c *conn) Close() error {
-	_ = c.quit()
-	return c.subConn.close()
+	c.quit()
+	return c.mysqlConn.Close()
 }
 
 func (c *conn) quit() error {
-	pkt := command.New(generic.ComQuit, nil)
+	pkt := packet.New(core.ComQuit, nil)
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return err
 	}
 
 	data, err := c.ReadPacket()
 	// response is either a connection close or a OK_Packet
-	if err == nil && generic.IsOK(data) {
+	if err == nil && packet.IsOK(data) {
 		return nil
 	}
 	return err
 }
 
 func (c *conn) Ping() error {
-	pkt := command.New(generic.ComPing, nil)
+	pkt := packet.New(core.ComPing, nil)
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return err
 	}
-	return c.ReadOKErrPacket()
+	return c.readOKERRPacket()
 }
 
 func (c *conn) dial() error {
-	handshake, err := c.handshake()
+	handshake, err := c.handleHandshake()
 	if err != nil {
 		return err
 	}
 
-	if err := c.handshakeResponse(handshake); err != nil {
+	if err := c.handleSSL(); err != nil {
 		return err
 	}
-	return c.auth(handshake.AuthPlugin, handshake.GetAuthData())
+
+	plugin := handshake.AuthPlugin
+	authData := handshake.GetAuthData()
+
+	if err := c.writeHandshakeResponsePacket(plugin, authData); err != nil {
+		return err
+	}
+	return c.auth(plugin, authData)
 }
 
-func (c *conn) handshake() (*connection.Handshake, error) {
+func (c *conn) handleHandshake() (*packet.Handshake, error) {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return nil, err
 	}
-	if generic.IsErr(data) {
-		return nil, c.HandleOKErrPacket(data)
+	if packet.IsErr(data) {
+		return nil, c.handleOKERRPacket(data)
 	}
-	return connection.ParseHandshake(data)
+	return packet.ParseHandshake(data)
 }
 
-func (c *conn) handshakeResponse(handshake *connection.Handshake) error {
-	serverPlugin := handshake.AuthPlugin
-	authData := handshake.GetAuthData()
-
-	var pkt connection.HandshakeResponse
-
-	pkt.ClientCapabilityFlags |= generic.ClientProtocol41 |
-		generic.ClientSecureConnection |
-		generic.ClientPluginAuth |
-		generic.ClientLongPassword |
-		generic.ClientLongFlag |
-		generic.ClientTransactions |
-		generic.ClientInteractive |
-		generic.ClientMultiResults
-
-	// TODO max packet size
-	pkt.MaxPacketSize = 16777215
-	pkt.CharacterSet = generic.Utf8mb4GeneralCi
-	pkt.Username = []byte(c.user)
-	pkt.AuthPlugin = serverPlugin
-
-	passwordEncrypted, err := generic.EncryptPassword(serverPlugin, []byte(c.password), authData)
+func (c *conn) writeHandshakeResponsePacket(plugin core.AuthenticationPlugin, authData []byte) error {
+	passwordEncrypted, err := core.EncryptPassword(plugin, []byte(c.password), authData)
 	if err != nil {
 		return err
 	}
-	pkt.AuthRes = passwordEncrypted
+
+	pkt := &packet.HandshakeResponse{
+		ClientCapabilityFlags: c.Capabilities(),
+		MaxPacketSize:         maxPacketSize,
+		CharacterSet:          c.collation,
+		Username:              []byte(c.user),
+		AuthRes:               passwordEncrypted,
+		AuthPlugin:            plugin,
+	}
 
 	if len(c.attrs) > 0 {
-		pkt.ClientCapabilityFlags |= generic.ClientConnectAttrs
+		pkt.ClientCapabilityFlags |= core.ClientConnectAttrs
 		for key, val := range c.attrs {
 			pkt.AddAttribute(key, val)
 		}
 	}
 
-	c.capabilities = pkt.ClientCapabilityFlags
+	c.mysqlConn.SetCapabilities(pkt.ClientCapabilityFlags)
+	return c.WritePacket(pkt)
+}
 
-	return c.WritePacket(&pkt)
+func (c *conn) defaultCapabilities() core.CapabilityFlag {
+	return core.ClientProtocol41 |
+		core.ClientSecureConnection |
+		core.ClientPluginAuth |
+		core.ClientLongPassword |
+		core.ClientLongFlag |
+		core.ClientTransactions |
+		core.ClientInteractive |
+		core.ClientMultiResults
 }
 
 func (c *conn) ReadPacket() ([]byte, error) {
-	// payload length
-	lenData, err := c.Next(3)
-	if err != nil {
-		return nil, err
-	}
-	lenData = append(lenData, 0x00)
-	length := binary.LittleEndian.Uint32(lenData)
-
-	// sequence
-	seqData, err := c.Next(1)
-	if err != nil {
-		return nil, err
-	}
-	if len(seqData) == 0 {
-		return nil, generic.ErrPacketData
-	}
-	c.sequence = seqData[0]
-
-	// payload
-	payloadData, err := c.Next(int(length))
-	if err != nil {
-		return nil, err
-	}
-
-	// packet bytes
-	packetData := append(lenData[:len(lenData)-1], seqData...)
-	packetData = append(packetData, payloadData...)
-
-	return packetData, nil
+	return c.mysqlConn.ReadPacket()
 }
 
-func (c *conn) ReadUntilEOFPacket() error {
+func (c *conn) readUntilEOFPacket() error {
 	for {
 		data, err := c.ReadPacket()
 		if err != nil {
@@ -190,75 +184,63 @@ func (c *conn) ReadUntilEOFPacket() error {
 		}
 
 		switch {
-		case generic.IsErr(data):
-			return c.HandleOKErrPacket(data)
+		case packet.IsErr(data):
+			return c.handleOKERRPacket(data)
 
-		case generic.IsEOF(data):
-			// TODO status
-			eofPkt, err := generic.ParseEOF(data, c.capabilities)
+		case packet.IsEOF(data):
+			eofPkt, err := packet.ParseEOF(data, c.mysqlConn.Capabilities())
 			if err != nil {
 				return err
 			}
-			c.status = eofPkt.StatusFlags // todo test
+			c.status = eofPkt.StatusFlags
 			return nil
 		}
 	}
 }
 
-func (c *conn) WritePacket(packet generic.Packet) error {
-	c.sequence++
-	packet.SetSequence(int(c.sequence))
-	_, err := c.subConn.Write(packet.Dump(0))
-	return err
+func (c *conn) WritePacket(pkt packet.Packet) error {
+	return c.mysqlConn.WritePacket(pkt)
 }
 
-func (c *conn) WriteCommandPacket(pkt generic.Packet) error {
-	c.sequence = 0
-	pkt.SetSequence(int(c.sequence))
-	_, err := c.subConn.Write(pkt.Dump(0))
-	return err
+func (c *conn) WriteCommandPacket(pkt packet.Packet) error {
+	return c.mysqlConn.WriteCommandPacket(pkt)
 }
 
-func (c *conn) HandleOKErrPacket(data []byte) error {
+func (c *conn) handleOKERRPacket(data []byte) error {
 	switch {
-	case generic.IsOK(data):
-		okPkt, err := generic.ParseOk(data, c.capabilities)
+	case packet.IsOK(data):
+		okPkt, err := packet.ParseOk(data, c.mysqlConn.Capabilities())
 		if err != nil {
 			return err
 		}
-
 		c.affectedRows = okPkt.AffectedRows
 		c.lastInsertId = okPkt.LastInsertId
-		c.status = okPkt.StatusFlags // todo test
-
+		c.status = okPkt.StatusFlags
 		return nil
 
-	case generic.IsErr(data):
-		errPkt, err := generic.ParseERR(data, c.capabilities)
+	case packet.IsErr(data):
+		errPkt, err := packet.ParseERR(data, c.mysqlConn.Capabilities())
 		if err != nil {
 			return err
 		}
+		// TODO convert to mysql error
 		return errPkt
 
 	default:
-		return generic.ErrPacketData
+		return packet.ErrPacketData
 	}
 }
 
-func (c *conn) ReadOKErrPacket() error {
+func (c *conn) readOKERRPacket() error {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return err
 	}
-	return c.HandleOKErrPacket(data)
+	return c.handleOKERRPacket(data)
 }
 
-func (c *conn) Capabilities() generic.CapabilityFlag {
-	return c.capabilities
-}
-
-func (c *conn) Status() generic.StatusFlag {
-	return c.status
+func (c *conn) Capabilities() core.CapabilityFlag {
+	return c.mysqlConn.Capabilities()
 }
 
 func (c *conn) AffectedRows() uint64 {
@@ -293,12 +275,54 @@ func WithPassword(password string) Option {
 	})
 }
 
+func WithLocation(loc *time.Location) Option {
+	return optionFun(func(c *conn) {
+		c.loc = loc
+	})
+}
+
 func WithAttribute(key string, val string) Option {
 	return optionFun(func(c *conn) {
 		if c.attrs == nil {
 			c.attrs = make(map[string]string)
 			c.attrs[key] = val
 		}
+	})
+}
+
+func WithCollation(collation *core.Collation) Option {
+	return optionFun(func(c *conn) {
+		c.collation = collation
+	})
+}
+
+func WithUseSSL(useSSL bool) Option {
+	return optionFun(func(c *conn) {
+		c.useSSL = useSSL
+	})
+}
+
+func WithSSLCA(sslCA string) Option {
+	return optionFun(func(c *conn) {
+		c.sslCA = sslCA
+	})
+}
+
+func WithInsecureSkipVerify(insecureSkipVerify bool) Option {
+	return optionFun(func(c *conn) {
+		c.insecureSkipVerify = insecureSkipVerify
+	})
+}
+
+func WithSSLCert(sslCert string) Option {
+	return optionFun(func(c *conn) {
+		c.sslCert = sslCert
+	})
+}
+
+func WithSSLKey(sslKey string) Option {
+	return optionFun(func(c *conn) {
+		c.sslKey = sslKey
 	})
 }
 
