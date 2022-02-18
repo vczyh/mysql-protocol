@@ -3,6 +3,7 @@ MySQL SDK by Go.
 The following has been implemented:
 
 - [Client](#Client)
+- [Server](#Server)
 
 ## Install
 
@@ -28,24 +29,20 @@ if err := conn.Ping(); err != nil {
 }
 ```
 
-| Implement | Description |
-|---- |---- |
-| [go-mysql-driver](https://github.com/vczyh/go-mysql-driver) | MySQL driver |
-
 ## Server
 
 ```go
-	srv := NewServer(
-		NewTestHandler(),
-		WithHost("0.0.0.0"),
-		WithPort(3306),
-		WithUser("root"),
-		WithPassword("root"),
-		WithVersion("8.0.25"))
+srv := NewServer(
+  NewTestHandler(),
+  WithHost("0.0.0.0"),
+  WithPort(3306),
+  WithUser("root"),
+  WithPassword("root"),
+  WithVersion("8.0.25"))
 
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
+if err := srv.Start(); err != nil {
+  // handle error
+}
 ```
 
 

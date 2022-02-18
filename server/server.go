@@ -139,7 +139,6 @@ func (s *server) defaultCapabilities() core.CapabilityFlag {
 		core.ClientIgnoreSpace |
 		core.ClientProtocol41 |
 		core.ClientInteractive |
-		core.ClientSSL |
 		core.ClientIgnoreSigpipe |
 		core.ClientTransactions |
 		core.ClientSecureConnection |
@@ -152,6 +151,10 @@ func (s *server) defaultCapabilities() core.CapabilityFlag {
 		core.ClientCanHandleExpiredPasswords
 	//generic.ClientSessionTrack |
 	//generic.ClientDeprecateEOF
+
+	if s.useSSL {
+		capabilities |= core.ClientSSL
+	}
 
 	return capabilities
 }

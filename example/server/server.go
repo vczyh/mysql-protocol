@@ -14,8 +14,7 @@ func main() {
 		server.WithHost("0.0.0.0"),
 		server.WithPort(3306),
 		server.WithUser("root"),
-		server.WithPassword("root"),
-		server.WithVersion("8.0.25"))
+		server.WithPassword("root"))
 
 	if err := srv.Start(); err != nil {
 		log.Fatal(err)
