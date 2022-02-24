@@ -2,7 +2,7 @@ package packet
 
 import (
 	"bytes"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/flag"
 )
 
 // EOF https://dev.mysql.com/doc/internals/en/packet-EOF_Packet.html
@@ -11,10 +11,10 @@ type EOF struct {
 
 	EOFHeader    uint8
 	WarningCount uint16
-	StatusFlags  core.StatusFlag
+	StatusFlags  flag.StatusFlag
 }
 
-func NewEOF(warningCount int, statusFlag core.StatusFlag) *EOF {
+func NewEOF(warningCount int, statusFlag flag.StatusFlag) *EOF {
 	return &EOF{
 		EOFHeader:    0xfe,
 		WarningCount: uint16(warningCount),
@@ -22,7 +22,7 @@ func NewEOF(warningCount int, statusFlag core.StatusFlag) *EOF {
 	}
 }
 
-func ParseEOF(bs []byte, capabilities core.CapabilityFlag) (*EOF, error) {
+func ParseEOF(bs []byte, capabilities flag.CapabilityFlag) (*EOF, error) {
 	var p EOF
 	var err error
 
@@ -38,21 +38,21 @@ func ParseEOF(bs []byte, capabilities core.CapabilityFlag) (*EOF, error) {
 	}
 	p.EOFHeader = buf.Next(1)[0]
 
-	if capabilities&core.ClientProtocol41 != 0 {
+	if capabilities&flag.ClientProtocol41 != 0 {
 		// Warning Count
 		p.WarningCount = uint16(FixedLengthInteger.Get(buf.Next(2)))
 		// Status Flags
-		p.StatusFlags = core.StatusFlag(FixedLengthInteger.Get(buf.Next(2)))
+		p.StatusFlags = flag.StatusFlag(FixedLengthInteger.Get(buf.Next(2)))
 	}
 
 	return &p, nil
 }
 
-func (eof *EOF) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (eof *EOF) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 
 	payload.WriteByte(eof.EOFHeader)
-	if capabilities&core.ClientProtocol41 != 0 {
+	if capabilities&flag.ClientProtocol41 != 0 {
 		payload.Write(FixedLengthInteger.Dump(uint64(eof.WarningCount), 2))
 		payload.Write(FixedLengthInteger.Dump(uint64(eof.StatusFlags), 2))
 	}

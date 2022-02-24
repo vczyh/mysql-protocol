@@ -2,18 +2,19 @@ package packet
 
 import (
 	"bytes"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/auth"
+	"github.com/vczyh/mysql-protocol/flag"
 )
 
 type AuthSwitchRequest struct {
 	Header
 
 	PayloadHeader uint8
-	AuthPlugin    core.AuthenticationMethod
+	AuthPlugin    auth.AuthenticationMethod
 	AuthData      []byte
 }
 
-func NewAuthSwitchRequest(method core.AuthenticationMethod, authData []byte) *AuthSwitchRequest {
+func NewAuthSwitchRequest(method auth.AuthenticationMethod, authData []byte) *AuthSwitchRequest {
 	return &AuthSwitchRequest{
 		PayloadHeader: 0xfe,
 		AuthPlugin:    method,
@@ -36,7 +37,7 @@ func ParseAuthSwitchRequest(data []byte) (*AuthSwitchRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.AuthPlugin, err = core.ParseAuthenticationPlugin(string(pluginName)); err != nil {
+	if p.AuthPlugin, err = auth.ParseAuthenticationPlugin(string(pluginName)); err != nil {
 		return nil, err
 	}
 
@@ -45,7 +46,7 @@ func ParseAuthSwitchRequest(data []byte) (*AuthSwitchRequest, error) {
 	return &p, nil
 }
 
-func (p *AuthSwitchRequest) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *AuthSwitchRequest) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 
 	payload.WriteByte(p.PayloadHeader)

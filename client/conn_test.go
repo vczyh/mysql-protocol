@@ -2,7 +2,7 @@ package client
 
 import (
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/charset"
 	"io"
 	"log"
 	"math/rand"
@@ -19,7 +19,7 @@ func TestMain(m *testing.M) {
 		WithUser("root"),
 		WithPassword("Unicloud@1221"),
 
-		WithCollation(core.Utf8mb40900AiCi),
+		WithCollation(charset.Utf8mb40900AiCi),
 
 		WithUseSSL(true),
 		WithInsecureSkipVerify(true),

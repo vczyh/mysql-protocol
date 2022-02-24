@@ -5,18 +5,20 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/auth"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
+	"github.com/vczyh/mysql-protocol/mysqllog"
 	"github.com/vczyh/mysql-protocol/packet"
-	"log"
 	"math/big"
 	"net"
+	"os"
 )
 
 type server struct {
 	port              int
 	version           string
-	defaultAuthMethod core.AuthenticationMethod
+	defaultAuthMethod auth.AuthenticationMethod
 
 	userProvider UserProvider
 	sha2Cache    SHA2Cache
@@ -33,7 +35,8 @@ type server struct {
 	privateKey     *rsa.PrivateKey
 	publicKeyBytes []byte
 
-	h Handler
+	h      Handler
+	logger mysqllog.Logger
 
 	l net.Listener
 }
@@ -65,18 +68,15 @@ func (s *server) Start() error {
 	for {
 		conn, err := s.l.Accept()
 		if err != nil {
-			// TODO log error
-			log.Printf("accept error: %v", err)
+			s.logger.Error(fmt.Errorf("tcp accept failed: %v", err))
 			continue
 		}
 
 		connId, err := s.applyForConnectionId()
 		if err != nil {
-			// TODO log error
-			log.Printf("create mysql connection error: %v", err)
+			s.logger.Error(fmt.Errorf("apply for connection id failed: %v", err))
 			continue
 		}
-
 		go s.handleConnection(mysql.NewServerConnection(conn, connId, s.defaultCapabilities()))
 	}
 }
@@ -94,6 +94,10 @@ func (s *server) build() error {
 		return fmt.Errorf("require Handler not nil")
 	}
 
+	if s.logger == nil {
+		s.logger = mysqllog.NewDefaultLogger(mysqllog.SystemLevel, os.Stdout)
+	}
+
 	if err := s.buildKeyPair(); err != nil {
 		return err
 	}
@@ -109,10 +113,8 @@ func (s *server) handleConnection(conn mysql.Conn) {
 	defer s.closeConnection(conn)
 
 	if err := s.auth(conn); err != nil {
-		// TODO log
-		log.Printf("auth error: %v", err)
-		if err := conn.WriteMySQLError(err); err != nil {
-			log.Printf("write mysql error failed: %v\n", err)
+		if err := conn.WriteError(err); err != nil {
+			s.logger.Error(fmt.Errorf("write error packet failed: %v", err))
 		}
 		return
 	}
@@ -122,8 +124,7 @@ func (s *server) handleConnection(conn mysql.Conn) {
 			return
 		}
 		if err := s.handleCommand(conn); err != nil {
-			// TODO log
-			log.Printf("can't handle command error: %v, so close connection", err)
+			s.logger.Error(fmt.Errorf("can't handle command error: %v, so close the connection", err))
 			return
 		}
 	}
@@ -163,33 +164,33 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 	return err
 }
 
-func (s *server) defaultCapabilities() core.CapabilityFlag {
-	capabilities := core.ClientLongPassword |
-		core.ClientFoundRows |
-		core.ClientLongFlag |
-		core.ClientConnectWithDB |
-		core.ClientNoSchema |
-		core.ClientCompress |
-		core.ClientODBC |
-		core.ClientLocalFiles |
-		core.ClientIgnoreSpace |
-		core.ClientProtocol41 |
-		core.ClientInteractive |
-		core.ClientIgnoreSigpipe |
-		core.ClientTransactions |
-		core.ClientSecureConnection |
-		core.ClientMultiStatements |
-		core.ClientMultiResults |
-		core.ClientPsMultiResults |
-		core.ClientPluginAuth |
-		core.ClientConnectAttrs |
-		core.ClientPluginAuthLenencClientData |
-		core.ClientCanHandleExpiredPasswords
+func (s *server) defaultCapabilities() flag.CapabilityFlag {
+	capabilities := flag.ClientLongPassword |
+		flag.ClientFoundRows |
+		flag.ClientLongFlag |
+		flag.ClientConnectWithDB |
+		flag.ClientNoSchema |
+		flag.ClientCompress |
+		flag.ClientODBC |
+		flag.ClientLocalFiles |
+		flag.ClientIgnoreSpace |
+		flag.ClientProtocol41 |
+		flag.ClientInteractive |
+		flag.ClientIgnoreSigpipe |
+		flag.ClientTransactions |
+		flag.ClientSecureConnection |
+		flag.ClientMultiStatements |
+		flag.ClientMultiResults |
+		flag.ClientPsMultiResults |
+		flag.ClientPluginAuth |
+		flag.ClientConnectAttrs |
+		flag.ClientPluginAuthLenencClientData |
+		flag.ClientCanHandleExpiredPasswords
 	//generic.ClientSessionTrack |
 	//generic.ClientDeprecateEOF
 
 	if s.useSSL {
-		capabilities |= core.ClientSSL
+		capabilities |= flag.ClientSSL
 	}
 
 	return capabilities
@@ -233,7 +234,7 @@ func WithVersion(version string) Option {
 	})
 }
 
-func WithDefaultAuthMethod(method core.AuthenticationMethod) Option {
+func WithDefaultAuthMethod(method auth.AuthenticationMethod) Option {
 	return optionFun(func(s *server) {
 		s.defaultAuthMethod = method
 	})
@@ -248,6 +249,12 @@ func WithUserProvider(userProvider UserProvider) Option {
 func WithSHA2Cache(cache SHA2Cache) Option {
 	return optionFun(func(s *server) {
 		s.sha2Cache = cache
+	})
+}
+
+func WithLogger(logger mysqllog.Logger) Option {
+	return optionFun(func(s *server) {
+		s.logger = logger
 	})
 }
 

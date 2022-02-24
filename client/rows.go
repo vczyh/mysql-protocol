@@ -1,7 +1,7 @@
 package client
 
 import (
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/packet"
 	"io"
 )
@@ -58,7 +58,7 @@ func (r *rows) Next() (packet.Row, error) {
 }
 
 func (r *rows) HasNextResultSet() bool {
-	return r.conn.status&core.ServerMoreResultsExists != 0
+	return r.conn.status&flag.ServerMoreResultsExists != 0
 }
 
 func (r *rows) NextResultSet() error {

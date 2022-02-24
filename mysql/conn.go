@@ -4,22 +4,21 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/code"
-	"github.com/vczyh/mysql-protocol/core"
-	"github.com/vczyh/mysql-protocol/errors"
+	"github.com/vczyh/mysql-protocol/flag"
+	"github.com/vczyh/mysql-protocol/mysqlerror"
 	"github.com/vczyh/mysql-protocol/packet"
 	"net"
 )
 
 type Conn interface {
-	SetCapabilities(capabilities core.CapabilityFlag)
+	SetCapabilities(capabilities flag.CapabilityFlag)
 
 	ClientTLS(config *tls.Config)
 	ServerTLS(config *tls.Config)
 	TLS() bool
 
 	ConnectionId() uint32
-	Capabilities() core.CapabilityFlag
+	Capabilities() flag.CapabilityFlag
 
 	RemoteAddr() net.Addr
 
@@ -30,7 +29,6 @@ type Conn interface {
 
 	WriteEmptyOK() error
 	WriteError(error) error
-	WriteMySQLError(error) error
 
 	Close() error
 	Closed() bool
@@ -45,10 +43,10 @@ type mysqlConn struct {
 	closed   bool
 
 	connId       uint32 // only for server
-	capabilities core.CapabilityFlag
+	capabilities flag.CapabilityFlag
 }
 
-func NewClientConnection(conn net.Conn, capabilities core.CapabilityFlag) Conn {
+func NewClientConnection(conn net.Conn, capabilities flag.CapabilityFlag) Conn {
 	return &mysqlConn{
 		conn:         conn,
 		sequence:     -1,
@@ -56,7 +54,7 @@ func NewClientConnection(conn net.Conn, capabilities core.CapabilityFlag) Conn {
 	}
 }
 
-func NewServerConnection(conn net.Conn, connId uint32, capabilities core.CapabilityFlag) Conn {
+func NewServerConnection(conn net.Conn, connId uint32, capabilities flag.CapabilityFlag) Conn {
 	return &mysqlConn{
 		conn:         conn,
 		sequence:     -1,
@@ -65,19 +63,7 @@ func NewServerConnection(conn net.Conn, connId uint32, capabilities core.Capabil
 	}
 }
 
-//func (c *mysqlConn) WithCapabilities(capabilities core.CapabilityFlag) Conn {
-//	return &mysqlConn{
-//		conn:         c.conn,
-//		tlsConn:      c.tlsConn,
-//		useTLS:       c.useTLS,
-//		sequence:     c.sequence,
-//		closed:       c.closed,
-//		connId:       c.connId,
-//		capabilities: capabilities,
-//	}
-//}
-
-func (c *mysqlConn) SetCapabilities(capabilities core.CapabilityFlag) {
+func (c *mysqlConn) SetCapabilities(capabilities flag.CapabilityFlag) {
 	c.capabilities = capabilities
 }
 
@@ -95,7 +81,7 @@ func (c *mysqlConn) TLS() bool {
 	return c.useTLS
 }
 
-func (c *mysqlConn) Capabilities() core.CapabilityFlag {
+func (c *mysqlConn) Capabilities() flag.CapabilityFlag {
 	return c.capabilities
 }
 
@@ -185,24 +171,16 @@ func (c *mysqlConn) WriteEmptyOK() error {
 
 func (c *mysqlConn) WriteError(err error) error {
 	if err == nil {
-		return fmt.Errorf("error required not nil")
+		return nil
 	}
 
-	if mysqlErr, ok := err.(errors.Error); ok {
-		return c.WritePacket(mysqlErr.Packet())
+	mysqlErr, ok := err.(mysqlerror.Error)
+	if !ok {
+		return nil
 	}
 
-	mysqlErr := errors.NewWithoutSQLState(code.Err, err.Error())
-	return c.WritePacket(mysqlErr.Packet())
-}
-
-func (c *mysqlConn) WriteMySQLError(err error) error {
-	if err == nil {
-		return fmt.Errorf("error required not nil")
-	}
-
-	if mysqlErr, ok := err.(errors.Error); ok {
-		return c.WritePacket(mysqlErr.Packet())
+	if mysqlErr.CanSendToClient() {
+		return c.WritePacket(packet.NewERR(mysqlErr))
 	}
 	return nil
 }

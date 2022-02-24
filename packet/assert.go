@@ -1,9 +1,5 @@
 package packet
 
-import (
-	"github.com/vczyh/mysql-protocol/core"
-)
-
 const (
 	OKPacketHeader                = 0x00
 	EOFPacketHeader               = 0xfe
@@ -66,13 +62,13 @@ func IsRequestPublicKey(data []byte) bool {
 }
 
 func IsPing(data []byte) bool {
-	return len(data) == 5 && data[4] == core.ComPing
+	return len(data) == 5 && data[4] == ComPing.Byte()
 }
 
 func IsQuery(data []byte) bool {
-	return len(data) > 4 && data[4] == core.ComQuery
+	return len(data) > 4 && data[4] == ComQuery.Byte()
 }
 
 func IsQuit(data []byte) bool {
-	return len(data) == 5 && data[4] == core.ComQuit
+	return len(data) == 5 && data[4] == ComQuit.Byte()
 }

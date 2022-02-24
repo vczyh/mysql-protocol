@@ -1,4 +1,4 @@
-package core
+package auth
 
 import (
 	"bytes"
@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	ErrUnsupportedAuthenticationMethod = errors.New("unsupported AuthenticationMethod")
-	ErrMismatch                        = errors.New("mismatch")
+	ErrUnsupportedAuthenticationMethod = errors.New("auth: unsupported AuthenticationMethod")
+	ErrMismatch                        = errors.New("auth: validate mismatch")
 )
 
 type AuthenticationMethod uint8

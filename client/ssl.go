@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/packet"
 	"os"
 )
@@ -16,7 +16,7 @@ func (c *conn) handleSSL() error {
 
 	// TODO server support SSL?
 
-	capabilities := c.Capabilities() | core.ClientSSL
+	capabilities := c.Capabilities() | flag.ClientSSL
 	c.mysqlConn.SetCapabilities(capabilities)
 
 	if err := c.writeSSLRequestPacket(capabilities); err != nil {
@@ -55,7 +55,7 @@ func (c *conn) switchToTLS() error {
 	return nil
 }
 
-func (c *conn) writeSSLRequestPacket(capabilities core.CapabilityFlag) error {
+func (c *conn) writeSSLRequestPacket(capabilities flag.CapabilityFlag) error {
 	return c.WritePacket(&packet.SSLRequest{
 		ClientCapabilityFlags: capabilities,
 		MaxPacketSize:         maxPacketSize,

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/auth"
+	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/flag"
 )
 
 // Handshake https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::Handshake
@@ -15,13 +17,13 @@ type Handshake struct {
 	ServerVersion           string
 	ConnectionId            uint32
 	Salt1                   []byte
-	CapabilityFlags         core.CapabilityFlag
-	CharacterSet            *core.Collation
-	StatusFlags             core.StatusFlag
-	ExtendedCapabilityFlags core.CapabilityFlag
+	CapabilityFlags         flag.CapabilityFlag
+	CharacterSet            *charset.Collation
+	StatusFlags             flag.StatusFlag
+	ExtendedCapabilityFlags flag.CapabilityFlag
 	AuthPluginDataLen       uint8
 	Salt2                   []byte
-	AuthPlugin              core.AuthenticationMethod
+	AuthPlugin              auth.AuthenticationMethod
 }
 
 func ParseHandshake(bs []byte) (*Handshake, error) {
@@ -57,7 +59,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	buf.Next(1)
 
 	// Capability Flags
-	p.CapabilityFlags = core.CapabilityFlag(FixedLengthInteger.Get(buf.Next(2)))
+	p.CapabilityFlags = flag.CapabilityFlag(FixedLengthInteger.Get(buf.Next(2)))
 
 	if buf.Len() == 0 {
 		return &p, err
@@ -68,24 +70,24 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 		return nil, ErrPacketData
 	}
 	collationId := buf.Next(1)[0]
-	collation, ok := core.CollationIds[collationId]
+	collation, ok := charset.CollationIds[collationId]
 	if !ok {
 		return nil, fmt.Errorf("unknown collation id %d", collationId)
 	}
 	p.CharacterSet = collation
 
 	// Status Flags
-	p.StatusFlags = core.StatusFlag(FixedLengthInteger.Get(buf.Next(2)))
+	p.StatusFlags = flag.StatusFlag(FixedLengthInteger.Get(buf.Next(2)))
 
 	// ExtendedCapabilityFlags
-	p.ExtendedCapabilityFlags = core.CapabilityFlag(FixedLengthInteger.Get(buf.Next(2)))
+	p.ExtendedCapabilityFlags = flag.CapabilityFlag(FixedLengthInteger.Get(buf.Next(2)))
 
 	var capabilitiesBs = make([]byte, 4)
 	binary.LittleEndian.PutUint16(capabilitiesBs, uint16(p.CapabilityFlags))
 	binary.LittleEndian.PutUint16(capabilitiesBs[2:], uint16(p.ExtendedCapabilityFlags))
-	capabilities := core.CapabilityFlag(binary.LittleEndian.Uint32(capabilitiesBs))
+	capabilities := flag.CapabilityFlag(binary.LittleEndian.Uint32(capabilitiesBs))
 
-	if capabilities&core.ClientPluginAuth != 0 {
+	if capabilities&flag.ClientPluginAuth != 0 {
 		// Length of auth-plugin-data
 		if buf.Len() == 0 {
 			return nil, ErrPacketData
@@ -100,7 +102,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	buf.Next(10)
 
 	// Auth Plugin Name Part2
-	if capabilities&core.ClientSecureConnection != 0 {
+	if capabilities&flag.ClientSecureConnection != 0 {
 		l := 13
 		if p.AuthPluginDataLen-8 > 13 {
 			l = int(p.AuthPluginDataLen - 8)
@@ -109,12 +111,12 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	}
 
 	// Auth Plugin Name
-	if capabilities&core.ClientPluginAuth != 0 {
+	if capabilities&flag.ClientPluginAuth != 0 {
 		pluginName, err := NulTerminatedString.Get(buf)
 		if err != nil {
 			return nil, err
 		}
-		if p.AuthPlugin, err = core.ParseAuthenticationPlugin(string(pluginName)); err != nil {
+		if p.AuthPlugin, err = auth.ParseAuthenticationPlugin(string(pluginName)); err != nil {
 			return nil, err
 		}
 	}
@@ -122,7 +124,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	return &p, nil
 }
 
-func (p *Handshake) GetCapabilities() core.CapabilityFlag {
+func (p *Handshake) GetCapabilities() flag.CapabilityFlag {
 	return p.CapabilityFlags | p.ExtendedCapabilityFlags
 }
 
@@ -135,12 +137,12 @@ func (p *Handshake) GetAuthData() []byte {
 	return salt
 }
 
-func (p *Handshake) SetCapabilities(capabilities core.CapabilityFlag) {
+func (p *Handshake) SetCapabilities(capabilities flag.CapabilityFlag) {
 	p.CapabilityFlags = capabilities & 0x0000ffff
 	p.ExtendedCapabilityFlags = capabilities & 0xffff0000
 }
 
-func (p *Handshake) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *Handshake) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 	// Protocol Version
 	payload.WriteByte(p.ProtocolVersion)
@@ -170,7 +172,7 @@ func (p *Handshake) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
 	payload.Write(FixedLengthInteger.Dump(uint64(p.ExtendedCapabilityFlags>>16), 2))
 
 	// Length of auth-plugin-data
-	if capabilities&core.ClientPluginAuth != 0 {
+	if capabilities&flag.ClientPluginAuth != 0 {
 		p.AuthPluginDataLen = uint8(len(p.Salt2) + 8)
 	} else {
 		p.AuthPluginDataLen = 0x00
@@ -183,12 +185,12 @@ func (p *Handshake) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
 	}
 
 	// Auth Plugin Name Part2
-	if capabilities&core.ClientSecureConnection != 0 {
+	if capabilities&flag.ClientSecureConnection != 0 {
 		payload.Write(p.Salt2)
 	}
 
 	// Auth Plugin Name
-	if capabilities&core.ClientPluginAuth != 0 {
+	if capabilities&flag.ClientPluginAuth != 0 {
 		payload.Write(NulTerminatedString.Dump([]byte(p.AuthPlugin.String())))
 	}
 
@@ -209,13 +211,13 @@ func (p *Handshake) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
 type HandshakeResponse struct {
 	Header
 
-	ClientCapabilityFlags core.CapabilityFlag
+	ClientCapabilityFlags flag.CapabilityFlag
 	MaxPacketSize         uint32
-	CharacterSet          *core.Collation
+	CharacterSet          *charset.Collation
 	Username              []byte // interpreted by CharacterSet
 	AuthRes               []byte
 	Database              []byte // interpreted by CharacterSet
-	AuthPlugin            core.AuthenticationMethod
+	AuthPlugin            auth.AuthenticationMethod
 
 	AttributeLen uint64
 	Attributes   []Attribute
@@ -237,7 +239,7 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 	}
 
 	// Client Capability Flags
-	p.ClientCapabilityFlags = core.CapabilityFlag(uint32(FixedLengthInteger.Get(buf.Next(4))))
+	p.ClientCapabilityFlags = flag.CapabilityFlag(uint32(FixedLengthInteger.Get(buf.Next(4))))
 
 	// Max Packet Size
 	p.MaxPacketSize = uint32(FixedLengthInteger.Get(buf.Next(4)))
@@ -247,7 +249,7 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 		return nil, ErrPacketData
 	}
 	collationId := buf.Next(1)[0]
-	collation, ok := core.CollationIds[collationId]
+	collation, ok := charset.CollationIds[collationId]
 	if !ok {
 		return nil, fmt.Errorf("unknown collation id %d", collationId)
 	}
@@ -262,13 +264,13 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 	}
 
 	// Password
-	if p.ClientCapabilityFlags&core.ClientPluginAuthLenencClientData != 0 {
+	if p.ClientCapabilityFlags&flag.ClientPluginAuthLenencClientData != 0 {
 		l, err := LengthEncodedInteger.Get(buf)
 		if err != nil {
 			return nil, err
 		}
 		p.AuthRes = buf.Next(int(l))
-	} else if p.ClientCapabilityFlags&core.ClientSecureConnection != 0 {
+	} else if p.ClientCapabilityFlags&flag.ClientSecureConnection != 0 {
 		if buf.Len() == 0 {
 			return nil, ErrPacketData
 		}
@@ -281,25 +283,25 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 	}
 
 	// Database
-	if p.ClientCapabilityFlags&core.ClientConnectWithDB != 0 {
+	if p.ClientCapabilityFlags&flag.ClientConnectWithDB != 0 {
 		if p.Database, err = NulTerminatedString.Get(buf); err != nil {
 			return nil, err
 		}
 	}
 
 	// Auth Plugin Name
-	if p.ClientCapabilityFlags&core.ClientPluginAuth != 0 {
+	if p.ClientCapabilityFlags&flag.ClientPluginAuth != 0 {
 		pluginName, err := NulTerminatedString.Get(buf)
 		if err != nil {
 			return nil, err
 		}
-		if p.AuthPlugin, err = core.ParseAuthenticationPlugin(string(pluginName)); err != nil {
+		if p.AuthPlugin, err = auth.ParseAuthenticationPlugin(string(pluginName)); err != nil {
 			return nil, err
 		}
 	}
 
 	// Attributes
-	if p.ClientCapabilityFlags&core.ClientConnectAttrs != 0 {
+	if p.ClientCapabilityFlags&flag.ClientConnectAttrs != 0 {
 		p.AttributeLen, err = LengthEncodedInteger.Get(buf)
 		if err != nil {
 			return nil, err
@@ -323,7 +325,7 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 	return &p, nil
 }
 
-func (p *HandshakeResponse) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *HandshakeResponse) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 	// Max Packet Size
 	payload.Write(FixedLengthInteger.Dump(uint64(p.MaxPacketSize), 4))
@@ -343,23 +345,23 @@ func (p *HandshakeResponse) Dump(capabilities core.CapabilityFlag) ([]byte, erro
 	authResLen := len(p.AuthRes)
 	authResLenEncoded := LengthEncodedInteger.Dump(uint64(authResLen))
 	if len(authResLenEncoded) > 1 {
-		p.ClientCapabilityFlags |= core.ClientPluginAuthLenencClientData
+		p.ClientCapabilityFlags |= flag.ClientPluginAuthLenencClientData
 	}
 	payload.Write(authResLenEncoded)
 	payload.Write(p.AuthRes)
 
 	// Database
-	if p.ClientCapabilityFlags&core.ClientConnectWithDB != 0 {
+	if p.ClientCapabilityFlags&flag.ClientConnectWithDB != 0 {
 		payload.Write(NulTerminatedString.Dump(p.Database))
 	}
 
 	// Auth Plugin Name
-	if p.ClientCapabilityFlags&core.ClientPluginAuth != 0 {
+	if p.ClientCapabilityFlags&flag.ClientPluginAuth != 0 {
 		payload.Write(NulTerminatedString.Dump([]byte(p.AuthPlugin.String())))
 	}
 
 	// Attributes
-	if p.ClientCapabilityFlags&core.ClientConnectAttrs != 0 {
+	if p.ClientCapabilityFlags&flag.ClientConnectAttrs != 0 {
 		payload.Write(LengthEncodedInteger.Dump(p.AttributeLen))
 		for _, attribute := range p.Attributes {
 			payload.Write(LengthEncodedString.Dump([]byte(attribute.Key)))

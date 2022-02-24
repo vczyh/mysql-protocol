@@ -9,9 +9,11 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
-	"github.com/vczyh/mysql-protocol/errors"
+	"github.com/vczyh/mysql-protocol/auth"
+	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
+	"github.com/vczyh/mysql-protocol/mysqlerror"
 	"github.com/vczyh/mysql-protocol/packet"
 	mysqlrand "github.com/vczyh/mysql-protocol/rand"
 	"os"
@@ -37,7 +39,7 @@ func (s *server) auth(conn mysql.Conn) error {
 	authRes := hsr.AuthRes
 	host := s.clientHost(conn)
 
-	errAccessDenied := errors.AccessDenied.Build(user, host, "YES")
+	errAccessDenied := mysqlerror.AccessDenied.Build(user, host, "YES")
 
 	key, err := s.userProvider.Key(user, host)
 	if err != nil {
@@ -64,7 +66,7 @@ func (s *server) auth(conn mysql.Conn) error {
 	return s.authentication(conn, method, key, authRes, authData, errAccessDenied)
 }
 
-func (s *server) writeAuthSwitchRequestPacket(conn mysql.Conn, method core.AuthenticationMethod) ([]byte, error) {
+func (s *server) writeAuthSwitchRequestPacket(conn mysql.Conn, method auth.AuthenticationMethod) ([]byte, error) {
 	authData := mysqlrand.Bytes(20)
 	return authData, conn.WritePacket(packet.NewAuthSwitchRequest(method, append(authData, 0x00)))
 }
@@ -77,11 +79,11 @@ func (s *server) handleAuthSwitchResponsePacket(conn mysql.Conn) ([]byte, error)
 	return packet.ParseAuthSwitchResponse(data)
 }
 
-func (s *server) authentication(conn mysql.Conn, method core.AuthenticationMethod, key string,
+func (s *server) authentication(conn mysql.Conn, method auth.AuthenticationMethod, key string,
 	authRes, salt []byte, errAccessDenied error) error {
 
 	switch method {
-	case core.MySQLNativePassword:
+	case auth.MySQLNativePassword:
 		as, err := s.userProvider.AuthenticationString(key)
 		if err != nil {
 			// TODO maybe error is not found
@@ -97,14 +99,14 @@ func (s *server) authentication(conn mysql.Conn, method core.AuthenticationMetho
 		}
 
 		if err := method.ChallengeResponse(challengeRes, authRes, salt); err != nil {
-			if err == core.ErrMismatch {
+			if err == auth.ErrMismatch {
 				return errAccessDenied
 			}
 			return err
 		}
 		return conn.WriteEmptyOK()
 
-	case core.SHA256Password:
+	case auth.SHA256Password:
 		as, err := s.userProvider.AuthenticationString(key)
 		if err != nil {
 			return err
@@ -116,7 +118,7 @@ func (s *server) authentication(conn mysql.Conn, method core.AuthenticationMetho
 		}
 
 		if err := method.Validate(as, password); err != nil {
-			if err == core.ErrMismatch {
+			if err == auth.ErrMismatch {
 				return errAccessDenied
 			}
 			return err
@@ -125,7 +127,7 @@ func (s *server) authentication(conn mysql.Conn, method core.AuthenticationMetho
 
 	// https://dev.mysql.com/blog-archive/preparing-your-community-connector-for-mysql-8-part-2-sha256/
 	// https://dev.mysql.com/doc/dev/mysql-server/latest/page_caching_sha2_authentication_exchanges.html
-	case core.CachingSha2Password:
+	case auth.CachingSha2Password:
 		challengeRes := s.sha2Cache.Get(key)
 		if challengeRes != nil {
 			// Fast authentication
@@ -134,8 +136,8 @@ func (s *server) authentication(conn mysql.Conn, method core.AuthenticationMetho
 			}
 
 			if err := method.ChallengeResponse(challengeRes, authRes, salt); err != nil {
-				if err == core.ErrMismatch {
-					return conn.WriteMySQLError(errAccessDenied)
+				if err == auth.ErrMismatch {
+					return conn.WriteError(errAccessDenied)
 				}
 				return err
 			}
@@ -158,7 +160,7 @@ func (s *server) authentication(conn mysql.Conn, method core.AuthenticationMetho
 			}
 
 			if err := method.Validate(as, password); err != nil {
-				if err == core.ErrMismatch {
+				if err == auth.ErrMismatch {
 					return errAccessDenied
 				}
 				return err
@@ -172,7 +174,7 @@ func (s *server) authentication(conn mysql.Conn, method core.AuthenticationMetho
 		}
 
 	default:
-		return core.ErrUnsupportedAuthenticationMethod
+		return auth.ErrUnsupportedAuthenticationMethod
 	}
 }
 
@@ -245,20 +247,20 @@ func (s *server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error
 		ServerVersion:     s.version,
 		ConnectionId:      conn.ConnectionId(),
 		Salt1:             salt1,
-		CharacterSet:      core.Utf8mb40900AiCi,
-		StatusFlags:       core.ServerStatusAutocommit,
+		CharacterSet:      charset.Utf8mb40900AiCi,
+		StatusFlags:       flag.ServerStatusAutocommit,
 		AuthPluginDataLen: 21,
 		AuthPlugin:        s.defaultAuthMethod,
 	}
 	hs.SetCapabilities(conn.Capabilities())
 
 	switch s.defaultAuthMethod {
-	case core.MySQLNativePassword:
+	case auth.MySQLNativePassword:
 		hs.Salt2 = mysqlrand.Bytes(13)
-	case core.CachingSha2Password, core.SHA256Password:
+	case auth.CachingSha2Password, auth.SHA256Password:
 		hs.Salt2 = append(mysqlrand.Bytes(12), 0x00)
 	default:
-		return nil, core.ErrUnsupportedAuthenticationMethod
+		return nil, auth.ErrUnsupportedAuthenticationMethod
 	}
 
 	return hs, conn.WritePacket(hs)

@@ -3,21 +3,126 @@ package packet
 import (
 	"bytes"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/flag"
 	"reflect"
 	"strconv"
 	"time"
 )
+
+type TableColumnType uint8
+
+// https://dev.mysql.com/doc/internals/en/com-query-response.html#packet-Protocol::ColumnType
+// https://dev.mysql.com/doc/dev/mysql-server/latest/field__types_8h.html
+const (
+	MySQLTypeDecimal TableColumnType = iota
+	MySQLTypeTiny
+	MySQLTypeShort
+	MySQLTypeLong
+	MySQLTypeFloat
+	MySQLTypeDouble
+	MySQLTypeNull
+	MySQLTypeTimestamp
+	MySQLTypeLongLong
+	MySQLTypeInt24
+	MySQLTypeDate
+	MySQLTypeTime
+	MySQLTypeDatetime
+	MySQLTypeYear
+	MySQLTypeNewDate
+	MySQLTypeVarchar
+	MySQLTypeBit
+	MySQLTypeTimestamp2
+	MySQLTypeDatetime2
+	MySQLTypeTime2
+	MySQLTypeNewDecimal = iota + 0xe2
+	MySQLTypeEnum
+	MySQLTypeSet
+	MySQLTypeTinyBlob
+	MySQLTypeMediumBlob
+	MySQLTypeLongBlob
+	MySQLTypeBlob
+	MySQLTypeVarString
+	MySQLTypeString
+	MySQLTypeGeometry
+)
+
+func (t TableColumnType) String() string {
+	switch t {
+	case MySQLTypeDecimal:
+		return "MYSQL_TYPE_DECIMAL"
+	case MySQLTypeTiny:
+		return "MYSQL_TYPE_TINY"
+	case MySQLTypeShort:
+		return "MYSQL_TYPE_SHORT"
+	case MySQLTypeLong:
+		return "MYSQL_TYPE_LONG"
+	case MySQLTypeFloat:
+		return "MYSQL_TYPE_FLOAT"
+	case MySQLTypeDouble:
+		return "MYSQL_TYPE_DOUBLE"
+	case MySQLTypeNull:
+		return "MYSQL_TYPE_NULL"
+	case MySQLTypeTimestamp:
+		return "MYSQL_TYPE_TIMESTAMP"
+	case MySQLTypeLongLong:
+		return "MYSQL_TYPE_LONGLONG"
+	case MySQLTypeInt24:
+		return "MYSQL_TYPE_INT24"
+	case MySQLTypeDate:
+		return "MYSQL_TYPE_DATE"
+	case MySQLTypeTime:
+		return "MYSQL_TYPE_TIME"
+	case MySQLTypeDatetime:
+		return "MYSQL_TYPE_DATETIME"
+	case MySQLTypeYear:
+		return "MYSQL_TYPE_YEAR"
+	case MySQLTypeNewDate:
+		return "MYSQL_TYPE_NEWDATE"
+	case MySQLTypeVarchar:
+		return "MYSQL_TYPE_VARCHAR"
+	case MySQLTypeBit:
+		return "MYSQL_TYPE_BIT"
+	case MySQLTypeTimestamp2:
+		return "MYSQL_TYPE_TIMESTAMP2"
+	case MySQLTypeDatetime2:
+		return "MYSQL_TYPE_DATETIME2"
+	case MySQLTypeTime2:
+		return "MYSQL_TYPE_TIME2"
+	case MySQLTypeNewDecimal:
+		return "MYSQL_TYPE_NEWDECIMAL"
+	case MySQLTypeEnum:
+		return "MYSQL_TYPE_ENUM"
+	case MySQLTypeSet:
+		return "MYSQL_TYPE_SET"
+	case MySQLTypeTinyBlob:
+		return "MYSQL_TYPE_TINY_BLOB"
+	case MySQLTypeMediumBlob:
+		return "MYSQL_TYPE_MEDIUM_BLOB"
+	case MySQLTypeLongBlob:
+		return "MYSQL_TYPE_LONG_BLOB"
+	case MySQLTypeBlob:
+		return "MYSQL_TYPE_BLOB"
+	case MySQLTypeVarString:
+		return "MYSQL_TYPE_VAR_STRING"
+	case MySQLTypeString:
+		return "MYSQL_TYPE_STRING"
+	case MySQLTypeGeometry:
+		return "MYSQL_TYPE_GEOMETRY"
+	default:
+		return "Unknown TableColumnType"
+	}
+}
 
 type Column interface {
 	Packet
 	GetDatabase() string
 	GetTable() string
 	GetName() string
-	GetCharSet() *core.Collation
+	GetCharSet() *charset.Collation
 	GetLength() uint32
-	GetType() core.TableColumnType
-	GetFlags() core.ColumnDefinitionFlag
+	GetType() TableColumnType
+	GetFlags() flag.ColumnDefinitionFlag
 	GetDecimals() byte
 	String() string
 }
@@ -43,10 +148,10 @@ type ColumnDefinition struct {
 	Name         string
 	OrgName      string
 	NextLength   uint64 // 0x0c
-	CharacterSet *core.Collation
+	CharacterSet *charset.Collation
 	ColumnLength uint32
-	ColumnType   core.TableColumnType
-	Flags        core.ColumnDefinitionFlag
+	ColumnType   TableColumnType
+	Flags        flag.ColumnDefinitionFlag
 	Decimals     uint8
 
 	// TODO command was COM_FIELD_LIST
@@ -97,15 +202,15 @@ func ParseColumnDefinition(bs []byte) (Column, error) {
 	}
 
 	collationId := uint8(FixedLengthInteger.Get(buf.Next(2)))
-	collation, ok := core.CollationIds[collationId]
+	collation, ok := charset.CollationIds[collationId]
 	if !ok {
 		return nil, fmt.Errorf("unknown collation id %d", collationId)
 	}
 	p.CharacterSet = collation
 
 	p.ColumnLength = uint32(FixedLengthInteger.Get(buf.Next(4)))
-	p.ColumnType = core.TableColumnType(FixedLengthInteger.Get(buf.Next(1)))
-	p.Flags = core.ColumnDefinitionFlag(FixedLengthInteger.Get(buf.Next(2)))
+	p.ColumnType = TableColumnType(FixedLengthInteger.Get(buf.Next(1)))
+	p.Flags = flag.ColumnDefinitionFlag(FixedLengthInteger.Get(buf.Next(2)))
 	p.Decimals = uint8(FixedLengthInteger.Get(buf.Next(1)))
 
 	// filler [00] [00]
@@ -114,7 +219,7 @@ func ParseColumnDefinition(bs []byte) (Column, error) {
 	return &p, nil
 }
 
-func (p *ColumnDefinition) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *ColumnDefinition) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 
 	if p.Catalog == "" {
@@ -166,7 +271,7 @@ func (p *ColumnDefinition) GetName() string {
 	return p.Name
 }
 
-func (p *ColumnDefinition) GetCharSet() *core.Collation {
+func (p *ColumnDefinition) GetCharSet() *charset.Collation {
 	return p.CharacterSet
 }
 
@@ -174,11 +279,11 @@ func (p *ColumnDefinition) GetLength() uint32 {
 	return p.ColumnLength
 }
 
-func (p *ColumnDefinition) GetType() core.TableColumnType {
+func (p *ColumnDefinition) GetType() TableColumnType {
 	return p.ColumnType
 }
 
-func (p *ColumnDefinition) GetFlags() core.ColumnDefinitionFlag {
+func (p *ColumnDefinition) GetFlags() flag.ColumnDefinitionFlag {
 	return p.Flags
 }
 
@@ -193,10 +298,10 @@ func (p *ColumnDefinition) String() string {
 type columnValue struct {
 	isNull    bool
 	value     Value
-	mysqlType core.TableColumnType
+	mysqlType TableColumnType
 }
 
-func NewColumnValue(isNull bool, val interface{}, mysqlType core.TableColumnType) ColumnValue {
+func NewColumnValue(isNull bool, val interface{}, mysqlType TableColumnType) ColumnValue {
 	return &columnValue{
 		isNull:    isNull,
 		value:     val,

@@ -2,7 +2,7 @@ package packet
 
 import (
 	"bytes"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/flag"
 )
 
 // StmtPrepareOKFirst https://dev.mysql.com/doc/internals/en/com-stmt-prepare-response.html#packet-COM_STMT_PREPARE_OK
@@ -56,7 +56,7 @@ type StmtExecute struct {
 func NewStmtExecute() *StmtExecute {
 	return &StmtExecute{
 		IterationCount: 1,
-		ComStmtExecute: core.ComStmtExecute,
+		ComStmtExecute: ComStmtExecute.Byte(),
 	}
 }
 
@@ -77,7 +77,7 @@ func (p *StmtExecute) NullBitMapSet(paramCount, index int) {
 	p.NullBitMap[bytePos] |= 1 << bitPos
 }
 
-func (p *StmtExecute) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *StmtExecute) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 	payload.WriteByte(p.ComStmtExecute)
 	payload.Write(FixedLengthInteger.Dump(uint64(p.StmtId), 4))

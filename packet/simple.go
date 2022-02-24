@@ -1,6 +1,8 @@
 package packet
 
-import "github.com/vczyh/mysql-protocol/core"
+import (
+	"github.com/vczyh/mysql-protocol/flag"
+)
 
 type Simple struct {
 	Header
@@ -13,7 +15,7 @@ func NewSimple(payload []byte) *Simple {
 	}
 }
 
-func (p *Simple) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *Simple) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	p.Header.Length = uint32(len(p.Payload))
 	headerDump, err := p.Header.Dump(capabilities)
 	if err != nil {

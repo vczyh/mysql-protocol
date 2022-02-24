@@ -3,14 +3,14 @@ package server
 import (
 	"errors"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/auth"
 	"sync"
 )
 
 var (
-	ErrUserNotFound                      = errors.New("user record not found")
-	ErrUserExisted                       = errors.New("user already existed")
-	ErrInvalidAuthenticationStringFormat = errors.New("invalid authentication string format")
+	ErrUserNotFound                      = errors.New("server: user not exist")
+	ErrUserExisted                       = errors.New("server: user already existed")
+	ErrInvalidAuthenticationStringFormat = errors.New("server: invalid authentication string format")
 )
 
 // UserProvider performs Authentication and Authorization.
@@ -23,11 +23,11 @@ type UserProvider interface {
 
 	AuthenticationString(key string) ([]byte, error)
 
-	AuthenticationMethod(key string) (core.AuthenticationMethod, error)
+	AuthenticationMethod(key string) (auth.AuthenticationMethod, error)
 
 	// Authentication checks (user,host) whether login is allowed.
 	//
-	// Return nil means allowed, If not be allowed, return errors.Error built by
+	// Return nil means allowed, If not be allowed, return errors.MySQL built by
 	// errors.AccessDenied(errors.AccessDenied.build()). Also return other errors.
 	//Authentication(r *AuthenticationRequest) error
 
@@ -37,7 +37,7 @@ type UserProvider interface {
 type AuthorizationRequest struct {
 	User   string
 	Host   string
-	method core.AuthenticationMethod
+	method auth.AuthenticationMethod
 
 	// Challenge-Response:
 	// It doesn't need know plaintext password, only compares hash values.
@@ -69,7 +69,7 @@ type user struct {
 	Name                 string
 	Host                 string
 	AuthenticationString []byte
-	method               core.AuthenticationMethod
+	method               auth.AuthenticationMethod
 	TLSRequired          bool
 }
 
@@ -77,7 +77,7 @@ type CreateUserRequest struct {
 	User        string
 	Host        string
 	Password    string
-	Method      core.AuthenticationMethod
+	Method      auth.AuthenticationMethod
 	TLSRequired bool
 
 	// expand more params
@@ -126,10 +126,10 @@ func (mp *memoryUserProvider) AuthenticationString(key string) ([]byte, error) {
 	return u.AuthenticationString, nil
 }
 
-func (mp *memoryUserProvider) AuthenticationMethod(key string) (core.AuthenticationMethod, error) {
+func (mp *memoryUserProvider) AuthenticationMethod(key string) (auth.AuthenticationMethod, error) {
 	u := mp.getUser(key)
 	if u == nil {
-		return core.MySQLNativePassword, ErrUserNotFound
+		return auth.MySQLNativePassword, ErrUserNotFound
 	}
 	return u.method, nil
 }

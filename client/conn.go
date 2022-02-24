@@ -2,7 +2,9 @@ package client
 
 import (
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/auth"
+	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/packet"
 	"net"
@@ -10,7 +12,7 @@ import (
 )
 
 type Conn interface {
-	Capabilities() core.CapabilityFlag
+	Capabilities() flag.CapabilityFlag
 	AffectedRows() uint64
 	LastInsertId() uint64
 
@@ -30,7 +32,7 @@ const (
 	maxPacketSize = 1<<24 - 1
 )
 
-var defaultCollation = core.Utf8mb4GeneralCi
+var defaultCollation = charset.Utf8mb4GeneralCi
 
 type conn struct {
 	host      string
@@ -39,7 +41,7 @@ type conn struct {
 	password  string
 	loc       *time.Location
 	attrs     map[string]string
-	collation *core.Collation
+	collation *charset.Collation
 
 	useSSL             bool
 	insecureSkipVerify bool
@@ -49,7 +51,7 @@ type conn struct {
 
 	mysqlConn mysql.Conn
 
-	status       core.StatusFlag
+	status       flag.StatusFlag
 	affectedRows uint64
 	lastInsertId uint64
 }
@@ -84,7 +86,7 @@ func (c *conn) Close() error {
 }
 
 func (c *conn) quit() error {
-	pkt := packet.New(core.ComQuit, nil)
+	pkt := packet.New(packet.ComQuit, nil)
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return err
 	}
@@ -98,7 +100,7 @@ func (c *conn) quit() error {
 }
 
 func (c *conn) Ping() error {
-	pkt := packet.New(core.ComPing, nil)
+	pkt := packet.New(packet.ComPing, nil)
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return err
 	}
@@ -135,8 +137,8 @@ func (c *conn) handleHandshake() (*packet.Handshake, error) {
 	return packet.ParseHandshake(data)
 }
 
-func (c *conn) writeHandshakeResponsePacket(plugin core.AuthenticationMethod, authData []byte) error {
-	passwordEncrypted, err := core.EncryptPassword(plugin, []byte(c.password), authData)
+func (c *conn) writeHandshakeResponsePacket(plugin auth.AuthenticationMethod, authData []byte) error {
+	passwordEncrypted, err := auth.EncryptPassword(plugin, []byte(c.password), authData)
 	if err != nil {
 		return err
 	}
@@ -151,7 +153,7 @@ func (c *conn) writeHandshakeResponsePacket(plugin core.AuthenticationMethod, au
 	}
 
 	if len(c.attrs) > 0 {
-		pkt.ClientCapabilityFlags |= core.ClientConnectAttrs
+		pkt.ClientCapabilityFlags |= flag.ClientConnectAttrs
 		for key, val := range c.attrs {
 			pkt.AddAttribute(key, val)
 		}
@@ -161,15 +163,15 @@ func (c *conn) writeHandshakeResponsePacket(plugin core.AuthenticationMethod, au
 	return c.WritePacket(pkt)
 }
 
-func (c *conn) defaultCapabilities() core.CapabilityFlag {
-	return core.ClientProtocol41 |
-		core.ClientSecureConnection |
-		core.ClientPluginAuth |
-		core.ClientLongPassword |
-		core.ClientLongFlag |
-		core.ClientTransactions |
-		core.ClientInteractive |
-		core.ClientMultiResults
+func (c *conn) defaultCapabilities() flag.CapabilityFlag {
+	return flag.ClientProtocol41 |
+		flag.ClientSecureConnection |
+		flag.ClientPluginAuth |
+		flag.ClientLongPassword |
+		flag.ClientLongFlag |
+		flag.ClientTransactions |
+		flag.ClientInteractive |
+		flag.ClientMultiResults
 }
 
 func (c *conn) ReadPacket() ([]byte, error) {
@@ -239,7 +241,7 @@ func (c *conn) readOKERRPacket() error {
 	return c.handleOKERRPacket(data)
 }
 
-func (c *conn) Capabilities() core.CapabilityFlag {
+func (c *conn) Capabilities() flag.CapabilityFlag {
 	return c.mysqlConn.Capabilities()
 }
 
@@ -290,7 +292,7 @@ func WithAttribute(key string, val string) Option {
 	})
 }
 
-func WithCollation(collation *core.Collation) Option {
+func WithCollation(collation *charset.Collation) Option {
 	return optionFun(func(c *conn) {
 		c.collation = collation
 	})

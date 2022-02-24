@@ -1,4 +1,4 @@
-package core
+package charset
 
 var Collations = map[string]*Collation{
 	"utf8_general_ci":    Utf8GeneralCi,

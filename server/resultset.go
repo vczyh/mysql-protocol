@@ -2,7 +2,8 @@ package server
 
 import (
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/packet"
 	"time"
@@ -41,9 +42,9 @@ func NewSimpleResultSet(columnNames []string, rowValues [][]interface{}) (Result
 			now := column.ColumnType
 
 			if i > 0 && now != bef {
-				if now == core.MySQLTypeNull {
+				if now == packet.MySQLTypeNull {
 					columns[i].ColumnType = bef
-				} else if bef != core.MySQLTypeNull && now != core.MySQLTypeNull {
+				} else if bef != packet.MySQLTypeNull && now != packet.MySQLTypeNull {
 					return nil, fmt.Errorf("row value for same column type differ")
 				}
 			}
@@ -114,24 +115,24 @@ func (rs *resultSet) WriteText(conn mysql.Conn) error {
 }
 
 func fillColumnDefinition(val interface{}, cd *packet.ColumnDefinition) error {
-	cd.CharacterSet = core.Utf8mb40900AiCi
+	cd.CharacterSet = charset.Utf8mb40900AiCi
 
 	switch val.(type) {
 	case int, int8, int16, int32, int64:
-		cd.ColumnType = core.MySQLTypeLongLong
-		cd.Flags |= core.BinaryFlag
+		cd.ColumnType = packet.MySQLTypeLongLong
+		cd.Flags |= flag.BinaryFlag
 	case uint, uint8, uint16, uint32, uint64:
-		cd.ColumnType = core.MySQLTypeLongLong
-		cd.Flags |= core.UnsignedFlag | core.BinaryFlag
+		cd.ColumnType = packet.MySQLTypeLongLong
+		cd.Flags |= flag.UnsignedFlag | flag.BinaryFlag
 	case float32, float64:
-		cd.ColumnType = core.MySQLTypeDouble
-		cd.Flags |= core.BinaryFlag
+		cd.ColumnType = packet.MySQLTypeDouble
+		cd.Flags |= flag.BinaryFlag
 	case string, []byte:
-		cd.ColumnType = core.MySQLTypeVarString
+		cd.ColumnType = packet.MySQLTypeVarString
 	case nil:
-		cd.ColumnType = core.MySQLTypeNull
+		cd.ColumnType = packet.MySQLTypeNull
 	case time.Time: // TODO delete?
-		cd.ColumnType = core.MySQLTypeDatetime
+		cd.ColumnType = packet.MySQLTypeDatetime
 	default:
 		return fmt.Errorf("unsupported column value type %T", val)
 	}

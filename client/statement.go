@@ -2,13 +2,13 @@ package client
 
 import (
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/packet"
 )
 
 func (c *conn) Exec(query string) (*mysql.Result, error) {
-	pkt := packet.New(core.ComQuery, []byte(query))
+	pkt := packet.New(packet.ComQuery, []byte(query))
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (c *conn) Exec(query string) (*mysql.Result, error) {
 }
 
 func (c *conn) Query(query string) (Rows, error) {
-	pkt := packet.New(core.ComQuery, []byte(query))
+	pkt := packet.New(packet.ComQuery, []byte(query))
 	if err := c.WriteCommandPacket(pkt); err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (c *conn) readExecuteResponseFirstPacket() (int, error) {
 }
 
 func (c *conn) getResult() error {
-	for c.status&core.ServerMoreResultsExists != 0 {
+	for c.status&flag.ServerMoreResultsExists != 0 {
 		columnCount, err := c.readExecuteResponseFirstPacket()
 		if err != nil {
 			return nil

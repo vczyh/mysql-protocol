@@ -3,7 +3,7 @@ package packet
 import (
 	"bytes"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/flag"
 	"math"
 	"strconv"
 	"strings"
@@ -74,8 +74,8 @@ func ParseTextResultSetRow(data []byte, columns []Column, loc *time.Location) (R
 
 		flags := columns[i].GetFlags()
 		switch cv.mysqlType {
-		case core.MySQLTypeTiny:
-			if flags&core.UnsignedFlag != 0 {
+		case MySQLTypeTiny:
+			if flags&flag.UnsignedFlag != 0 {
 				newVal, err := strconv.ParseUint(val, 10, 8)
 				if err != nil {
 					return nil, err
@@ -89,8 +89,8 @@ func ParseTextResultSetRow(data []byte, columns []Column, loc *time.Location) (R
 				cv.value = int8(newVal)
 			}
 
-		case core.MySQLTypeShort, core.MySQLTypeYear:
-			if flags&core.UnsignedFlag != 0 {
+		case MySQLTypeShort, MySQLTypeYear:
+			if flags&flag.UnsignedFlag != 0 {
 				newVal, err := strconv.ParseUint(val, 10, 16)
 				if err != nil {
 					return nil, err
@@ -104,8 +104,8 @@ func ParseTextResultSetRow(data []byte, columns []Column, loc *time.Location) (R
 				cv.value = int16(newVal)
 			}
 
-		case core.MySQLTypeInt24, core.MySQLTypeLong:
-			if flags&core.UnsignedFlag != 0 {
+		case MySQLTypeInt24, MySQLTypeLong:
+			if flags&flag.UnsignedFlag != 0 {
 				newVal, err := strconv.ParseUint(val, 10, 32)
 				if err != nil {
 					return nil, err
@@ -119,8 +119,8 @@ func ParseTextResultSetRow(data []byte, columns []Column, loc *time.Location) (R
 				cv.value = int32(newVal)
 			}
 
-		case core.MySQLTypeLongLong:
-			if flags&core.UnsignedFlag != 0 {
+		case MySQLTypeLongLong:
+			if flags&flag.UnsignedFlag != 0 {
 				cv.value, err = strconv.ParseUint(val, 10, 64)
 			} else {
 				cv.value, err = strconv.ParseInt(val, 10, 64)
@@ -129,36 +129,36 @@ func ParseTextResultSetRow(data []byte, columns []Column, loc *time.Location) (R
 				return nil, err
 			}
 
-		case core.MySQLTypeFloat:
+		case MySQLTypeFloat:
 			newVal, err := strconv.ParseFloat(val, 32)
 			if err != nil {
 				return nil, err
 			}
 			cv.value = float32(newVal)
 
-		case core.MySQLTypeDouble:
+		case MySQLTypeDouble:
 			cv.value, err = strconv.ParseFloat(val, 64)
 			if err != nil {
 				return nil, err
 			}
 
-		case core.MySQLTypeVarchar,
-			core.MySQLTypeBit,
-			core.MySQLTypeEnum,
-			core.MySQLTypeSet,
-			core.MySQLTypeTinyBlob, core.MySQLTypeMediumBlob, core.MySQLTypeLongBlob, core.MySQLTypeBlob,
-			core.MySQLTypeVarString, core.MySQLTypeString,
-			core.MySQLTypeDecimal, core.MySQLTypeNewDecimal:
+		case MySQLTypeVarchar,
+			MySQLTypeBit,
+			MySQLTypeEnum,
+			MySQLTypeSet,
+			MySQLTypeTinyBlob, MySQLTypeMediumBlob, MySQLTypeLongBlob, MySQLTypeBlob,
+			MySQLTypeVarString, MySQLTypeString,
+			MySQLTypeDecimal, MySQLTypeNewDecimal:
 			cv.value = []byte(val)
 
-		case core.MySQLTypeDate, core.MySQLTypeDatetime, core.MySQLTypeTimestamp:
+		case MySQLTypeDate, MySQLTypeDatetime, MySQLTypeTimestamp:
 			dt, err := parseDatetime(val, loc)
 			if err != nil {
 				return nil, err
 			}
 			cv.value = *dt
 
-		case core.MySQLTypeTime:
+		case MySQLTypeTime:
 			t, err := parseTime(val)
 			if err != nil {
 				return nil, err
@@ -177,7 +177,7 @@ func ParseTextResultSetRow(data []byte, columns []Column, loc *time.Location) (R
 	return p.Row, nil
 }
 
-func (p *TextResultSetRow) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *TextResultSetRow) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 
 	for _, val := range p.Row {
@@ -239,58 +239,58 @@ func ParseBinaryResultSetRow(data []byte, columns []Column, loc *time.Location) 
 
 		// https://dev.mysql.com/doc/internals/en/binary-protocol-value.html
 		switch cv.mysqlType {
-		case core.MySQLTypeTiny:
+		case MySQLTypeTiny:
 			val := FixedLengthInteger.Get(buf.Next(1))
-			if flags&core.UnsignedFlag != 0 {
+			if flags&flag.UnsignedFlag != 0 {
 				cv.value = uint8(val)
 			} else {
 				cv.value = int8(val)
 			}
 
-		case core.MySQLTypeShort, core.MySQLTypeYear:
+		case MySQLTypeShort, MySQLTypeYear:
 			val := FixedLengthInteger.Get(buf.Next(2))
-			if flags&core.UnsignedFlag != 0 {
+			if flags&flag.UnsignedFlag != 0 {
 				cv.value = uint16(val)
 			} else {
 				cv.value = int16(val)
 			}
 
-		case core.MySQLTypeInt24, core.MySQLTypeLong:
+		case MySQLTypeInt24, MySQLTypeLong:
 			val := FixedLengthInteger.Get(buf.Next(4))
-			if flags&core.UnsignedFlag != 0 {
+			if flags&flag.UnsignedFlag != 0 {
 				cv.value = uint32(val)
 			} else {
 				cv.value = int32(val)
 			}
 
-		case core.MySQLTypeLongLong:
+		case MySQLTypeLongLong:
 			val := FixedLengthInteger.Get(buf.Next(8))
-			if flags&core.UnsignedFlag != 0 {
+			if flags&flag.UnsignedFlag != 0 {
 				cv.value = val
 			} else {
 				cv.value = int64(val)
 			}
 
-		case core.MySQLTypeFloat:
+		case MySQLTypeFloat:
 			cv.value = math.Float32frombits(uint32(FixedLengthInteger.Get(buf.Next(4))))
 
-		case core.MySQLTypeDouble:
+		case MySQLTypeDouble:
 			cv.value = math.Float64frombits(FixedLengthInteger.Get(buf.Next(8)))
 
-		case core.MySQLTypeVarchar,
-			core.MySQLTypeBit,
-			core.MySQLTypeEnum,
-			core.MySQLTypeSet,
-			core.MySQLTypeTinyBlob, core.MySQLTypeMediumBlob, core.MySQLTypeLongBlob, core.MySQLTypeBlob,
-			core.MySQLTypeVarString, core.MySQLTypeString,
-			core.MySQLTypeDecimal, core.MySQLTypeNewDecimal:
+		case MySQLTypeVarchar,
+			MySQLTypeBit,
+			MySQLTypeEnum,
+			MySQLTypeSet,
+			MySQLTypeTinyBlob, MySQLTypeMediumBlob, MySQLTypeLongBlob, MySQLTypeBlob,
+			MySQLTypeVarString, MySQLTypeString,
+			MySQLTypeDecimal, MySQLTypeNewDecimal:
 			data, err := LengthEncodedString.Get(buf)
 			if err != nil {
 				return nil, err
 			}
 			cv.value = data
 
-		case core.MySQLTypeDate, core.MySQLTypeDatetime, core.MySQLTypeTimestamp:
+		case MySQLTypeDate, MySQLTypeDatetime, MySQLTypeTimestamp:
 			dataLen := FixedLengthInteger.Get(buf.Next(1))
 			if dataLen == 0 {
 				cv.value = time.Time{}
@@ -328,7 +328,7 @@ func ParseBinaryResultSetRow(data []byte, columns []Column, loc *time.Location) 
 					loc)
 			}
 
-		case core.MySQLTypeTime:
+		case MySQLTypeTime:
 			dataLen := FixedLengthInteger.Get(buf.Next(1))
 			if dataLen == 0 {
 				cv.value = time.Time{}

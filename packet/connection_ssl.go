@@ -3,15 +3,16 @@ package packet
 import (
 	"bytes"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/flag"
 )
 
 type SSLRequest struct {
 	Header
 
-	ClientCapabilityFlags core.CapabilityFlag
+	ClientCapabilityFlags flag.CapabilityFlag
 	MaxPacketSize         uint32
-	CharacterSet          *core.Collation
+	CharacterSet          *charset.Collation
 }
 
 func ParseSSLRequest(data []byte) (*SSLRequest, error) {
@@ -25,7 +26,7 @@ func ParseSSLRequest(data []byte) (*SSLRequest, error) {
 	}
 
 	// Client Capability Flags
-	p.ClientCapabilityFlags = core.CapabilityFlag(uint32(FixedLengthInteger.Get(buf.Next(4))))
+	p.ClientCapabilityFlags = flag.CapabilityFlag(uint32(FixedLengthInteger.Get(buf.Next(4))))
 
 	// Max Packet Size
 	p.MaxPacketSize = uint32(FixedLengthInteger.Get(buf.Next(4)))
@@ -35,7 +36,7 @@ func ParseSSLRequest(data []byte) (*SSLRequest, error) {
 		return nil, ErrPacketData
 	}
 	collationId := buf.Next(1)[0]
-	collation, ok := core.CollationIds[collationId]
+	collation, ok := charset.CollationIds[collationId]
 	if !ok {
 		return nil, fmt.Errorf("unknown collation id %d", collationId)
 	}
@@ -47,7 +48,7 @@ func ParseSSLRequest(data []byte) (*SSLRequest, error) {
 	return &p, nil
 }
 
-func (p *SSLRequest) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *SSLRequest) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 	payload.Write(FixedLengthInteger.Dump(uint64(p.ClientCapabilityFlags), 4))
 

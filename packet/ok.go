@@ -2,7 +2,7 @@ package packet
 
 import (
 	"bytes"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/flag"
 )
 
 // OK https://dev.mysql.com/doc/internals/en/packet-OK_Packet.html
@@ -12,7 +12,7 @@ type OK struct {
 	OKHeader            uint8
 	AffectedRows        uint64
 	LastInsertId        uint64
-	StatusFlags         core.StatusFlag
+	StatusFlags         flag.StatusFlag
 	WarningCount        uint16
 	Info                []byte
 	SessionStateChanges []byte // todo
@@ -30,7 +30,7 @@ const (
 //	Data []byte
 //}
 
-func ParseOk(bs []byte, capabilities core.CapabilityFlag) (*OK, error) {
+func ParseOk(bs []byte, capabilities flag.CapabilityFlag) (*OK, error) {
 	var p OK
 	var err error
 
@@ -57,14 +57,14 @@ func ParseOk(bs []byte, capabilities core.CapabilityFlag) (*OK, error) {
 	}
 
 	// Status Flags
-	if capabilities&core.ClientProtocol41 != 0 {
-		p.StatusFlags = core.StatusFlag(uint16(FixedLengthInteger.Get(buf.Next(2))))
+	if capabilities&flag.ClientProtocol41 != 0 {
+		p.StatusFlags = flag.StatusFlag(uint16(FixedLengthInteger.Get(buf.Next(2))))
 		p.WarningCount = uint16(FixedLengthInteger.Get(buf.Next(2)))
-	} else if capabilities&core.ClientTransactions != 0 {
-		p.StatusFlags = core.StatusFlag(uint16(FixedLengthInteger.Get(buf.Next(2))))
+	} else if capabilities&flag.ClientTransactions != 0 {
+		p.StatusFlags = flag.StatusFlag(uint16(FixedLengthInteger.Get(buf.Next(2))))
 	}
 
-	if capabilities&core.ClientSessionTrack != 0 {
+	if capabilities&flag.ClientSessionTrack != 0 {
 		// Info
 		if p.Info, err = LengthEncodedString.Get(buf); err != nil {
 			return nil, err
@@ -72,7 +72,7 @@ func ParseOk(bs []byte, capabilities core.CapabilityFlag) (*OK, error) {
 
 		// todo
 		// Session State Changes
-		if p.StatusFlags&core.ServerSessionStateChanged != 0 {
+		if p.StatusFlags&flag.ServerSessionStateChanged != 0 {
 			if p.SessionStateChanges, err = LengthEncodedString.Get(buf); err != nil {
 				return nil, err
 			}
@@ -85,26 +85,26 @@ func ParseOk(bs []byte, capabilities core.CapabilityFlag) (*OK, error) {
 	return &p, nil
 }
 
-func (p *OK) Dump(capabilities core.CapabilityFlag) ([]byte, error) {
+func (p *OK) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 	var payload bytes.Buffer
 	payload.WriteByte(p.OKHeader)
 	payload.Write(LengthEncodedInteger.Dump(p.AffectedRows))
 	payload.Write(LengthEncodedInteger.Dump(p.LastInsertId))
 
-	if capabilities&core.ClientProtocol41 != 0 {
+	if capabilities&flag.ClientProtocol41 != 0 {
 		payload.Write(FixedLengthInteger.Dump(uint64(p.StatusFlags), 2))
 		payload.Write(FixedLengthInteger.Dump(uint64(p.WarningCount), 2))
-	} else if capabilities&core.ClientTransactions != 0 {
+	} else if capabilities&flag.ClientTransactions != 0 {
 		payload.Write(FixedLengthInteger.Dump(uint64(p.StatusFlags), 2))
 	}
 
-	if capabilities&core.ClientSessionTrack != 0 {
+	if capabilities&flag.ClientSessionTrack != 0 {
 		// Info
 		payload.Write(LengthEncodedString.Dump(p.Info))
 
 		// todo
 		// Session State Changes
-		if p.StatusFlags&core.ServerSessionStateChanged != 0 {
+		if p.StatusFlags&flag.ServerSessionStateChanged != 0 {
 			payload.Write(LengthEncodedString.Dump(p.SessionStateChanges))
 		}
 	} else {

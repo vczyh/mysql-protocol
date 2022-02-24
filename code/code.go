@@ -21,6 +21,23 @@ const (
 	ErrNo                Code = 1002
 	ErrYes               Code = 1003
 	ErrAccessDeniedError Code = 1045
+)
 
-	Err Code = 50000
+// 2,000 to 2,999: Client error codes reserved for use by the client library.
+const ()
+
+// 3,000 to 4,999: Server error codes reserved for messages sent to clients.
+const ()
+
+// 5,000 to 5,999: Error codes reserved for use by X Plugin for messages sent to clients.
+const ()
+
+// 10,000 to 49,999: Server error codes reserved for messages to be written to the error log (not sent to clients).
+// When an error in this range occurs, the server writes it to the error log, padding the error code with leading
+// zeros to six digits and adding a prefix of MY-.
+const ()
+
+// 50,000 to 51,999: Error codes reserved for use by third parties (not sent to clients).
+const (
+	ErrGeneral Code = 50000
 )

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/auth"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/server"
 	"log"
@@ -16,7 +16,7 @@ func main() {
 		Host:     "%",
 		Password: "Unicloud@1221",
 		//Method:      core.CachingSha2Password,
-		Method: core.SHA256Password,
+		Method: auth.SHA256Password,
 		//Method:      core.MySQLNativePassword,
 		TLSRequired: false,
 	})
