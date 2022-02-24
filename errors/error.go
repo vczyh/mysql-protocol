@@ -2,31 +2,31 @@ package errors
 
 import (
 	"fmt"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/packet"
 )
 
-// MySQLError https://dev.mysql.com/doc/refman/8.0/en/error-message-elements.html
-type MySQLError interface {
+// Error https://dev.mysql.com/doc/refman/8.0/en/error-message-elements.html
+type Error interface {
 	error
 
-	Code() core.Code
+	Code() code.Code
 	SQLState() string
 	Message() string
 
 	Packet() *packet.ERR
 
-	PrintClient() string
-	PrintServer() string
+	Client() string
+	Server() string
 }
 
 type err struct {
-	code     core.Code
+	code     code.Code
 	sqlState string
 	message  string
 }
 
-func New(code core.Code, sqlState, message string) *err {
+func New(code code.Code, sqlState, message string) Error {
 	return &err{
 		code:     code,
 		sqlState: sqlState,
@@ -34,11 +34,11 @@ func New(code core.Code, sqlState, message string) *err {
 	}
 }
 
-func NewWithoutSQLState(code core.Code, message string) *err {
+func NewWithoutSQLState(code code.Code, message string) Error {
 	return New(code, " HY000", message)
 }
 
-func (e *err) Code() core.Code {
+func (e *err) Code() code.Code {
 	return e.code
 }
 
@@ -54,11 +54,11 @@ func (e *err) Packet() *packet.ERR {
 	return packet.NewERR(e.code, e.sqlState, e.message)
 }
 
-func (e *err) PrintClient() string {
+func (e *err) Client() string {
 	return fmt.Sprintf("ERROR %d (%s): %s", e.code, e.sqlState, e.message)
 }
 
-func (e *err) PrintServer() string {
+func (e *err) Server() string {
 	return fmt.Sprintf("[MY-%06d] [Server] %s", e.code, e.message)
 }
 
@@ -68,24 +68,24 @@ func (e *err) Error() string {
 
 // https://dev.mysql.com/doc/mysql-errors/8.0/en/server-error-reference.html
 var (
-	AccessDenied = newErrTemplate(core.ErrAccessDeniedError, "28000", "Access denied for user '%s'@'%s' (using password: %s)")
+	AccessDenied = newTemplate(code.ErrAccessDeniedError, "28000", "Access denied for user '%s'@'%s' (using password: %s)")
 )
 
-type errTemplate struct {
-	code     core.Code
+type template struct {
+	code     code.Code
 	sqlState string
-	template string
+	format   string
 }
 
-func newErrTemplate(code core.Code, sqlState, template string) *errTemplate {
-	return &errTemplate{
+func newTemplate(code code.Code, sqlState, format string) *template {
+	return &template{
 		code:     code,
 		sqlState: sqlState,
-		template: template,
+		format:   format,
 	}
 }
 
-func (t *errTemplate) Err(args ...interface{}) MySQLError {
-	message := fmt.Sprintf(t.template, args...)
+func (t *template) Build(args ...interface{}) Error {
+	message := fmt.Sprintf(t.format, args...)
 	return New(t.code, t.sqlState, message)
 }

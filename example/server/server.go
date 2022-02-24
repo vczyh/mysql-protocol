@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vczyh/mysql-protocol/core"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/server"
 	"log"
@@ -9,12 +10,30 @@ import (
 )
 
 func main() {
+	userProvider := server.NewMemoryUserProvider()
+	err := userProvider.Create(&server.CreateUserRequest{
+		User:     "root",
+		Host:     "%",
+		Password: "Unicloud@1221",
+		//Method:      core.CachingSha2Password,
+		Method: core.SHA256Password,
+		//Method:      core.MySQLNativePassword,
+		TLSRequired: false,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	srv := server.NewServer(
+		userProvider,
 		newTestHandler(),
-		server.WithHost("0.0.0.0"),
 		server.WithPort(3306),
-		server.WithUser("root"),
-		server.WithPassword("root"))
+		//server.WithDefaultAuthMethod(core.CachingSha2Password),
+		//server.WithDefaultAuthMethod(core.SHA256Password),
+
+		server.WithCachingSHA2PasswordPrivateKeyPath("tmp/private_key.pem"),
+		server.WithCachingSHA2PasswordPublicKeyPath("tmp/public_key.pem"),
+	)
 
 	if err := srv.Start(); err != nil {
 		log.Fatal(err)

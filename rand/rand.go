@@ -1,4 +1,4 @@
-package server
+package rand
 
 import (
 	"math/rand"
@@ -14,7 +14,7 @@ const (
 
 var src = rand.NewSource(time.Now().UnixNano())
 
-func RandBytes(n int) []byte {
+func Bytes(n int) []byte {
 	b := make([]byte, n)
 	// A src.Int63() generates 63 random bits, enough for letterIdxMax characters!
 	for i, cache, remain := n-1, src.Int63(), letterIdxMax; i >= 0; {

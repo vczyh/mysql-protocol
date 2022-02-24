@@ -21,7 +21,7 @@ type Handshake struct {
 	ExtendedCapabilityFlags core.CapabilityFlag
 	AuthPluginDataLen       uint8
 	Salt2                   []byte
-	AuthPlugin              core.AuthenticationPlugin
+	AuthPlugin              core.AuthenticationMethod
 }
 
 func ParseHandshake(bs []byte) (*Handshake, error) {
@@ -215,7 +215,7 @@ type HandshakeResponse struct {
 	Username              []byte // interpreted by CharacterSet
 	AuthRes               []byte
 	Database              []byte // interpreted by CharacterSet
-	AuthPlugin            core.AuthenticationPlugin
+	AuthPlugin            core.AuthenticationMethod
 
 	AttributeLen uint64
 	Attributes   []Attribute

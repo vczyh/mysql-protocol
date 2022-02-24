@@ -4,7 +4,7 @@ import (
 	"github.com/pingcap/parser"
 	"github.com/pingcap/parser/ast"
 	_ "github.com/pingcap/parser/test_driver"
-	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/errors"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"log"
@@ -41,7 +41,7 @@ func (h *DefaultHandler) Query(query string) (ResultSet, error) {
 	p := parser.New()
 	stmtNode, err := p.ParseOneStmt(query, "", "")
 	if err != nil {
-		return nil, errors.NewWithoutSQLState(core.Err, err.Error())
+		return nil, errors.NewWithoutSQLState(code.Err, err.Error())
 	}
 
 	switch v := stmtNode.(type) {
@@ -53,12 +53,12 @@ func (h *DefaultHandler) Query(query string) (ResultSet, error) {
 			},
 		)
 		if err != nil {
-			return nil, errors.NewWithoutSQLState(core.Err, err.Error())
+			return nil, errors.NewWithoutSQLState(code.Err, err.Error())
 		}
 		return rs, nil
 
 	default:
-		return nil, errors.NewWithoutSQLState(core.Err, "unsupported statement type")
+		return nil, errors.NewWithoutSQLState(code.Err, "unsupported statement type")
 	}
 }
 
@@ -67,7 +67,7 @@ func (h *DefaultHandler) Quit() {
 }
 
 func (h *DefaultHandler) Other(data []byte, conn mysql.Conn) {
-	if err := conn.WriteError(errors.NewWithoutSQLState(core.Err, "unsupported command")); err != nil {
+	if err := conn.WriteError(errors.NewWithoutSQLState(code.Err, "unsupported command")); err != nil {
 		log.Printf("write packet error: %v\n", err)
 	}
 }

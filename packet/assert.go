@@ -10,7 +10,8 @@ const (
 	ErrPacketHeader               = 0xff
 	AuthSwitchRequestPacketHeader = 0xfe
 	AuthMoreDataPacketHeader      = 0x01
-	LocalInfileRequest            = 0xfb
+	LocalInfileRequestHeader      = 0xfb
+	RequestPublicKeyHeader        = 0x02
 )
 
 func IsOK(data []byte) bool {
@@ -54,7 +55,14 @@ func IsLocalInfileRequest(data []byte) bool {
 	if len(data) < 5 {
 		return false
 	}
-	return data[4] == LocalInfileRequest
+	return data[4] == LocalInfileRequestHeader
+}
+
+func IsRequestPublicKey(data []byte) bool {
+	if len(data) < 5 {
+		return false
+	}
+	return data[4] == RequestPublicKeyHeader
 }
 
 func IsPing(data []byte) bool {

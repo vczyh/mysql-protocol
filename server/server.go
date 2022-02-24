@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"fmt"
 	"github.com/vczyh/mysql-protocol/core"
@@ -13,14 +14,12 @@ import (
 )
 
 type server struct {
-	h Handler
+	port              int
+	version           string
+	defaultAuthMethod core.AuthenticationMethod
 
-	host     string
-	port     int
-	user     string
-	password string
-	version  string
-	plugin   core.AuthenticationPlugin
+	userProvider UserProvider
+	sha2Cache    SHA2Cache
 
 	useSSL    bool
 	sslCA     string
@@ -28,30 +27,40 @@ type server struct {
 	sslKey    string
 	tlsConfig *tls.Config
 
+	// private/public key-pair files for sha256_password or caching_sha2_password authentication
+	privatePath    string
+	publicPath     string
+	privateKey     *rsa.PrivateKey
+	publicKeyBytes []byte
+
+	h Handler
+
 	l net.Listener
 }
 
-func NewServer(h Handler, opts ...Option) *server {
+func NewServer(userProvider UserProvider, h Handler, opts ...Option) *server {
 	s := new(server)
+	s.userProvider = userProvider
 	s.h = h
 
 	for _, opt := range opts {
 		opt.apply(s)
 	}
+
 	return s
 }
 
 func (s *server) Start() error {
-	l, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.host, s.port))
+	if err := s.build(); err != nil {
+		return err
+	}
+
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
 	if err != nil {
 		return err
 	}
 	defer l.Close()
 	s.l = l
-
-	if err := s.buildTLSConfig(); err != nil {
-		return err
-	}
 
 	for {
 		conn, err := s.l.Accept()
@@ -72,12 +81,39 @@ func (s *server) Start() error {
 	}
 }
 
+func (s *server) build() error {
+	if s.sha2Cache == nil {
+		s.sha2Cache = NewDefaultSHA2Cache()
+	}
+
+	if s.userProvider == nil {
+		return fmt.Errorf("require UserProvider not nil")
+	}
+
+	if s.h == nil {
+		return fmt.Errorf("require Handler not nil")
+	}
+
+	if err := s.buildKeyPair(); err != nil {
+		return err
+	}
+
+	if err := s.buildTLSConfig(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *server) handleConnection(conn mysql.Conn) {
 	defer s.closeConnection(conn)
 
 	if err := s.auth(conn); err != nil {
-		// TOOD log
+		// TODO log
 		log.Printf("auth error: %v", err)
+		if err := conn.WriteMySQLError(err); err != nil {
+			log.Printf("write mysql error failed: %v\n", err)
+		}
 		return
 	}
 
@@ -175,27 +211,19 @@ func (s *server) closeConnection(conn mysql.Conn) {
 	s.h.OnClose(conn.ConnectionId())
 }
 
-func WithHost(host string) Option {
-	return optionFun(func(s *server) {
-		s.host = host
-	})
+func (s *server) clientHost(conn mysql.Conn) string {
+	addr := conn.RemoteAddr()
+	switch v := addr.(type) {
+	case *net.TCPAddr:
+		return v.IP.String()
+	default:
+		return ""
+	}
 }
 
 func WithPort(port int) Option {
 	return optionFun(func(s *server) {
 		s.port = port
-	})
-}
-
-func WithUser(user string) Option {
-	return optionFun(func(s *server) {
-		s.user = user
-	})
-}
-
-func WithPassword(password string) Option {
-	return optionFun(func(s *server) {
-		s.password = password
 	})
 }
 
@@ -205,9 +233,21 @@ func WithVersion(version string) Option {
 	})
 }
 
-func WithAuthPlugin(plugin core.AuthenticationPlugin) Option {
+func WithDefaultAuthMethod(method core.AuthenticationMethod) Option {
 	return optionFun(func(s *server) {
-		s.plugin = plugin
+		s.defaultAuthMethod = method
+	})
+}
+
+func WithUserProvider(userProvider UserProvider) Option {
+	return optionFun(func(s *server) {
+		s.userProvider = userProvider
+	})
+}
+
+func WithSHA2Cache(cache SHA2Cache) Option {
+	return optionFun(func(s *server) {
+		s.sha2Cache = cache
 	})
 }
 
@@ -232,6 +272,24 @@ func WithSSLCert(sslCert string) Option {
 func WithSSLKey(sslKey string) Option {
 	return optionFun(func(s *server) {
 		s.sslKey = sslKey
+	})
+}
+
+//func WithCachingSHA2PasswordAutoGenerateRSAKeys(private string) Option {
+//	return optionFun(func(s *server) {
+//		s.sslKey = sslKey
+//	})
+//}
+
+func WithCachingSHA2PasswordPrivateKeyPath(privatePath string) Option {
+	return optionFun(func(s *server) {
+		s.privatePath = privatePath
+	})
+}
+
+func WithCachingSHA2PasswordPublicKeyPath(publicPath string) Option {
+	return optionFun(func(s *server) {
+		s.publicPath = publicPath
 	})
 }
 

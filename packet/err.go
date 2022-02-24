@@ -3,6 +3,7 @@ package packet
 import (
 	"bytes"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/core"
 )
 
@@ -11,13 +12,13 @@ type ERR struct {
 	Header
 
 	ERRHeader      uint8
-	ErrorCode      core.Code
+	ErrorCode      code.Code
 	SqlStateMarker byte
 	SqlState       string
 	ErrorMessage   string
 }
 
-func NewERR(code core.Code, sqlState, message string) *ERR {
+func NewERR(code code.Code, sqlState, message string) *ERR {
 	return &ERR{
 		ERRHeader:      0xff,
 		ErrorCode:      code,
@@ -44,7 +45,7 @@ func ParseERR(bs []byte, capabilities core.CapabilityFlag) (*ERR, error) {
 	p.ERRHeader = buf.Next(1)[0]
 
 	// Error Code
-	p.ErrorCode = core.Code(FixedLengthInteger.Get(buf.Next(2)))
+	p.ErrorCode = code.Code(FixedLengthInteger.Get(buf.Next(2)))
 
 	if capabilities&core.ClientProtocol41 != 0 {
 		if buf.Len() == 0 {

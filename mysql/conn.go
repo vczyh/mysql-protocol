@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/core"
 	"github.com/vczyh/mysql-protocol/errors"
 	"github.com/vczyh/mysql-protocol/packet"
@@ -20,6 +21,8 @@ type Conn interface {
 	ConnectionId() uint32
 	Capabilities() core.CapabilityFlag
 
+	RemoteAddr() net.Addr
+
 	ReadPacket() ([]byte, error)
 
 	WritePacket(packet.Packet) error
@@ -27,6 +30,7 @@ type Conn interface {
 
 	WriteEmptyOK() error
 	WriteError(error) error
+	WriteMySQLError(error) error
 
 	Close() error
 	Closed() bool
@@ -97,6 +101,14 @@ func (c *mysqlConn) Capabilities() core.CapabilityFlag {
 
 func (c *mysqlConn) ConnectionId() uint32 {
 	return c.connId
+}
+
+func (c *mysqlConn) RemoteAddr() net.Addr {
+	return c.getConnection().RemoteAddr()
+}
+
+func (c *mysqlConn) Host() {
+	c.getConnection().LocalAddr()
 }
 
 func (c *mysqlConn) ReadPacket() ([]byte, error) {
@@ -176,12 +188,23 @@ func (c *mysqlConn) WriteError(err error) error {
 		return fmt.Errorf("error required not nil")
 	}
 
-	if mysqlErr, ok := err.(errors.MySQLError); ok {
+	if mysqlErr, ok := err.(errors.Error); ok {
 		return c.WritePacket(mysqlErr.Packet())
 	}
 
-	mysqlErr := errors.NewWithoutSQLState(core.Err, err.Error())
+	mysqlErr := errors.NewWithoutSQLState(code.Err, err.Error())
 	return c.WritePacket(mysqlErr.Packet())
+}
+
+func (c *mysqlConn) WriteMySQLError(err error) error {
+	if err == nil {
+		return fmt.Errorf("error required not nil")
+	}
+
+	if mysqlErr, ok := err.(errors.Error); ok {
+		return c.WritePacket(mysqlErr.Packet())
+	}
+	return nil
 }
 
 func (c *mysqlConn) Close() error {

@@ -135,7 +135,7 @@ func (c *conn) handleHandshake() (*packet.Handshake, error) {
 	return packet.ParseHandshake(data)
 }
 
-func (c *conn) writeHandshakeResponsePacket(plugin core.AuthenticationPlugin, authData []byte) error {
+func (c *conn) writeHandshakeResponsePacket(plugin core.AuthenticationMethod, authData []byte) error {
 	passwordEncrypted, err := core.EncryptPassword(plugin, []byte(c.password), authData)
 	if err != nil {
 		return err

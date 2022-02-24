@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/core"
 	"github.com/vczyh/mysql-protocol/errors"
 	"github.com/vczyh/mysql-protocol/mysql"
@@ -11,18 +12,15 @@ import (
 	"os"
 )
 
-func (s *server) handleSSL(data []byte, conn mysql.Conn) error {
+func (s *server) handleTLS(data []byte, conn mysql.Conn) error {
 	pkt, err := packet.ParseSSLRequest(data)
 	if err != nil {
 		return err
 	}
 
 	if pkt.ClientCapabilityFlags&core.ClientSSL == 0 {
-		if err := conn.WriteError(errors.NewWithoutSQLState(core.Err, fmt.Sprintf("%s required", core.ClientSSL))); err != nil {
-			return err
-		}
-		s.closeConnection(conn)
-		return nil
+		// ToDO SSL mysql error
+		return errors.NewWithoutSQLState(code.Err, fmt.Sprintf("%s required", core.ClientSSL))
 	}
 
 	// TODO update capabilities

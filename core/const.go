@@ -432,15 +432,3 @@ func (c Command) String() string {
 		return "Unknown Command"
 	}
 }
-
-type Code uint16
-
-// TODO
-// https://dev.mysql.com/doc/mysql-errors/8.0/en/server-error-reference.html
-const (
-	ErrNo                Code = 1002
-	ErrYes               Code = 1003
-	ErrAccessDeniedError Code = 1045
-
-	Err Code = 50000
-)

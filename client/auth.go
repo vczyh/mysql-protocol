@@ -11,7 +11,7 @@ import (
 	"github.com/vczyh/mysql-protocol/packet"
 )
 
-func (c *conn) auth(plugin core.AuthenticationPlugin, authData []byte) error {
+func (c *conn) auth(plugin core.AuthenticationMethod, authData []byte) error {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return err
@@ -52,7 +52,7 @@ func (c *conn) auth(plugin core.AuthenticationPlugin, authData []byte) error {
 		switch plugin {
 		// https://dev.mysql.com/blog-archive/preparing-your-community-connector-for-mysql-8-part-2-sha256/
 		// https://dev.mysql.com/doc/dev/mysql-server/latest/page_caching_sha2_authentication_exchanges.html
-		case core.CachingSHA2PasswordPlugin:
+		case core.CachingSha2Password:
 			switch pluginData[0] {
 			// fast authentication
 			case 0x03:
@@ -77,7 +77,7 @@ func (c *conn) auth(plugin core.AuthenticationPlugin, authData []byte) error {
 	return packet.ErrPacketData
 }
 
-func (c *conn) writeAuthSwitchResponsePacket(plugin core.AuthenticationPlugin, authData []byte) (err error) {
+func (c *conn) writeAuthSwitchResponsePacket(plugin core.AuthenticationMethod, authData []byte) (err error) {
 	encryptedPassword, err := core.EncryptPassword(plugin, []byte(c.password), authData)
 	authRes := packet.NewAuthSwitchResponse(encryptedPassword)
 	return c.WritePacket(authRes)
