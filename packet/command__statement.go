@@ -77,7 +77,7 @@ func (p *StmtExecute) NullBitMapSet(paramCount, index int) {
 	p.NullBitMap[bytePos] |= 1 << bitPos
 }
 
-func (p *StmtExecute) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *StmtExecute) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 	payload.WriteByte(p.ComStmtExecute)
 	payload.Write(FixedLengthInteger.Dump(uint64(p.StmtId), 4))

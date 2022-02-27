@@ -15,7 +15,7 @@ func NewSimple(payload []byte) *Simple {
 	}
 }
 
-func (p *Simple) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *Simple) Dump(capabilities flag.Capability) ([]byte, error) {
 	p.Header.Length = uint32(len(p.Payload))
 	headerDump, err := p.Header.Dump(capabilities)
 	if err != nil {

@@ -10,11 +10,11 @@ type AuthSwitchRequest struct {
 	Header
 
 	PayloadHeader uint8
-	AuthPlugin    auth.AuthenticationMethod
+	AuthPlugin    auth.Method
 	AuthData      []byte
 }
 
-func NewAuthSwitchRequest(method auth.AuthenticationMethod, authData []byte) *AuthSwitchRequest {
+func NewAuthSwitchRequest(method auth.Method, authData []byte) *AuthSwitchRequest {
 	return &AuthSwitchRequest{
 		PayloadHeader: 0xfe,
 		AuthPlugin:    method,
@@ -46,7 +46,7 @@ func ParseAuthSwitchRequest(data []byte) (*AuthSwitchRequest, error) {
 	return &p, nil
 }
 
-func (p *AuthSwitchRequest) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *AuthSwitchRequest) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 
 	payload.WriteByte(p.PayloadHeader)

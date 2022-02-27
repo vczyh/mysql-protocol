@@ -122,7 +122,7 @@ type Column interface {
 	GetCharSet() *charset.Collation
 	GetLength() uint32
 	GetType() TableColumnType
-	GetFlags() flag.ColumnDefinitionFlag
+	GetFlags() flag.ColumnDefinition
 	GetDecimals() byte
 	String() string
 }
@@ -151,7 +151,7 @@ type ColumnDefinition struct {
 	CharacterSet *charset.Collation
 	ColumnLength uint32
 	ColumnType   TableColumnType
-	Flags        flag.ColumnDefinitionFlag
+	Flags        flag.ColumnDefinition
 	Decimals     uint8
 
 	// TODO command was COM_FIELD_LIST
@@ -210,7 +210,7 @@ func ParseColumnDefinition(bs []byte) (Column, error) {
 
 	p.ColumnLength = uint32(FixedLengthInteger.Get(buf.Next(4)))
 	p.ColumnType = TableColumnType(FixedLengthInteger.Get(buf.Next(1)))
-	p.Flags = flag.ColumnDefinitionFlag(FixedLengthInteger.Get(buf.Next(2)))
+	p.Flags = flag.ColumnDefinition(FixedLengthInteger.Get(buf.Next(2)))
 	p.Decimals = uint8(FixedLengthInteger.Get(buf.Next(1)))
 
 	// filler [00] [00]
@@ -219,7 +219,7 @@ func ParseColumnDefinition(bs []byte) (Column, error) {
 	return &p, nil
 }
 
-func (p *ColumnDefinition) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *ColumnDefinition) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 
 	if p.Catalog == "" {
@@ -283,7 +283,7 @@ func (p *ColumnDefinition) GetType() TableColumnType {
 	return p.ColumnType
 }
 
-func (p *ColumnDefinition) GetFlags() flag.ColumnDefinitionFlag {
+func (p *ColumnDefinition) GetFlags() flag.ColumnDefinition {
 	return p.Flags
 }
 

@@ -29,7 +29,7 @@ func NewERR(mysqlErr mysqlerror.Error) *ERR {
 	}
 }
 
-func ParseERR(bs []byte, capabilities flag.CapabilityFlag) (*ERR, error) {
+func ParseERR(bs []byte, capabilities flag.Capability) (*ERR, error) {
 	var p ERR
 	var err error
 
@@ -64,7 +64,7 @@ func ParseERR(bs []byte, capabilities flag.CapabilityFlag) (*ERR, error) {
 	return &p, nil
 }
 
-func (e *ERR) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (e *ERR) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 	// ERR Header
 	payload.WriteByte(e.ERRHeader)

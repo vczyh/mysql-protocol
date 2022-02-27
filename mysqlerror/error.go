@@ -63,7 +63,8 @@ func (e *err) Message() string {
 func (e *err) CanSendToClient() bool {
 	if e.Code() >= 1000 && e.Code() <= 1999 ||
 		e.Code() >= 3000 && e.Code() <= 4999 ||
-		e.Code() >= 5000 && e.Code() <= 5999 {
+		e.Code() >= 5000 && e.Code() <= 5999 ||
+		e.code == 50000 {
 		return true
 	}
 	return false

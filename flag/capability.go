@@ -1,8 +1,10 @@
 package flag
 
+type Capability uint32
+
 // Capability Flags: https://dev.mysql.com/doc/internals/en/capability-flags.html
 const (
-	ClientLongPassword CapabilityFlag = 1 << iota
+	ClientLongPassword Capability = 1 << iota
 	ClientFoundRows
 	ClientLongFlag
 	ClientConnectWithDB
@@ -29,7 +31,7 @@ const (
 	ClientDeprecateEOF
 )
 
-func (c CapabilityFlag) String() string {
+func (c Capability) String() string {
 	switch c {
 	case ClientLongPassword:
 		return "CLIENT_LONG_PASSWORD"
@@ -82,6 +84,6 @@ func (c CapabilityFlag) String() string {
 	case ClientDeprecateEOF:
 		return "CLIENT_DEPRECATE_EOF"
 	default:
-		return "Unknown CapabilityFlag"
+		return "Unknown Capability"
 	}
 }

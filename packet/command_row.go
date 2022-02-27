@@ -177,7 +177,7 @@ func ParseTextResultSetRow(data []byte, columns []Column, loc *time.Location) (R
 	return p.Row, nil
 }
 
-func (p *TextResultSetRow) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *TextResultSetRow) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 
 	for _, val := range p.Row {

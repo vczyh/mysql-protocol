@@ -1,10 +1,10 @@
 package flag
 
-type ColumnDefinitionFlag uint16
+type ColumnDefinition uint16
 
 // Column Definition Flags: https://dev.mysql.com/doc/dev/mysql-server/latest/group__group__cs__column__definition__flags.html
 const (
-	NotNullFlag ColumnDefinitionFlag = 1 << iota
+	NotNullFlag ColumnDefinition = 1 << iota
 	PriKeyFlag
 	UniqueKeyFlag
 	MultipleKeyFlag
@@ -18,7 +18,7 @@ const (
 	SetFlag
 )
 
-func (cd ColumnDefinitionFlag) String() string {
+func (cd ColumnDefinition) String() string {
 	switch cd {
 	case NotNullFlag:
 		return "NOT_NULL_FLAG"
@@ -45,6 +45,6 @@ func (cd ColumnDefinitionFlag) String() string {
 	case SetFlag:
 		return "SET_FLAG"
 	default:
-		return "Unknown ColumnDefinitionFlag"
+		return "Unknown ColumnDefinition"
 	}
 }

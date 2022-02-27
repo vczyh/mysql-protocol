@@ -11,14 +11,14 @@ import (
 )
 
 type Conn interface {
-	SetCapabilities(capabilities flag.CapabilityFlag)
+	SetCapabilities(capabilities flag.Capability)
 
 	ClientTLS(config *tls.Config)
 	ServerTLS(config *tls.Config)
-	TLS() bool
+	TLSed() bool
 
 	ConnectionId() uint32
-	Capabilities() flag.CapabilityFlag
+	Capabilities() flag.Capability
 
 	RemoteAddr() net.Addr
 
@@ -43,10 +43,10 @@ type mysqlConn struct {
 	closed   bool
 
 	connId       uint32 // only for server
-	capabilities flag.CapabilityFlag
+	capabilities flag.Capability
 }
 
-func NewClientConnection(conn net.Conn, capabilities flag.CapabilityFlag) Conn {
+func NewClientConnection(conn net.Conn, capabilities flag.Capability) Conn {
 	return &mysqlConn{
 		conn:         conn,
 		sequence:     -1,
@@ -54,7 +54,7 @@ func NewClientConnection(conn net.Conn, capabilities flag.CapabilityFlag) Conn {
 	}
 }
 
-func NewServerConnection(conn net.Conn, connId uint32, capabilities flag.CapabilityFlag) Conn {
+func NewServerConnection(conn net.Conn, connId uint32, capabilities flag.Capability) Conn {
 	return &mysqlConn{
 		conn:         conn,
 		sequence:     -1,
@@ -63,7 +63,7 @@ func NewServerConnection(conn net.Conn, connId uint32, capabilities flag.Capabil
 	}
 }
 
-func (c *mysqlConn) SetCapabilities(capabilities flag.CapabilityFlag) {
+func (c *mysqlConn) SetCapabilities(capabilities flag.Capability) {
 	c.capabilities = capabilities
 }
 
@@ -77,11 +77,11 @@ func (c *mysqlConn) ServerTLS(config *tls.Config) {
 	c.useTLS = true
 }
 
-func (c *mysqlConn) TLS() bool {
+func (c *mysqlConn) TLSed() bool {
 	return c.useTLS
 }
 
-func (c *mysqlConn) Capabilities() flag.CapabilityFlag {
+func (c *mysqlConn) Capabilities() flag.Capability {
 	return c.capabilities
 }
 

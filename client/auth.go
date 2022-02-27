@@ -11,7 +11,7 @@ import (
 	"github.com/vczyh/mysql-protocol/packet"
 )
 
-func (c *conn) auth(plugin auth.AuthenticationMethod, authData []byte) error {
+func (c *conn) auth(plugin auth.Method, authData []byte) error {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return err
@@ -59,7 +59,7 @@ func (c *conn) auth(plugin auth.AuthenticationMethod, authData []byte) error {
 				return c.readOKERRPacket()
 			// full authentication
 			case 0x04:
-				// TODO if TLS
+				// TODO if TLSed
 				// request public key
 				pubKeyData, err := c.requestPublicKey()
 				if err != nil {
@@ -77,7 +77,7 @@ func (c *conn) auth(plugin auth.AuthenticationMethod, authData []byte) error {
 	return packet.ErrPacketData
 }
 
-func (c *conn) writeAuthSwitchResponsePacket(plugin auth.AuthenticationMethod, authData []byte) (err error) {
+func (c *conn) writeAuthSwitchResponsePacket(plugin auth.Method, authData []byte) (err error) {
 	encryptedPassword, err := auth.EncryptPassword(plugin, []byte(c.password), authData)
 	authRes := packet.NewAuthSwitchResponse(encryptedPassword)
 	return c.WritePacket(authRes)

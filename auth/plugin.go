@@ -12,19 +12,19 @@ import (
 )
 
 var (
-	ErrUnsupportedAuthenticationMethod = errors.New("auth: unsupported AuthenticationMethod")
+	ErrUnsupportedAuthenticationMethod = errors.New("auth: unsupported Method")
 	ErrMismatch                        = errors.New("auth: validate mismatch")
 )
 
-type AuthenticationMethod uint8
+type Method uint8
 
 const (
-	MySQLNativePassword AuthenticationMethod = iota
+	MySQLNativePassword Method = iota
 	SHA256Password
 	CachingSha2Password
 )
 
-func ParseAuthenticationPlugin(name string) (AuthenticationMethod, error) {
+func ParseAuthenticationPlugin(name string) (Method, error) {
 	switch name {
 	case MySQLNativePassword.String():
 		return MySQLNativePassword, nil
@@ -37,7 +37,7 @@ func ParseAuthenticationPlugin(name string) (AuthenticationMethod, error) {
 	}
 }
 
-func (m AuthenticationMethod) GenerateAuthenticationString(password, salt []byte) ([]byte, error) {
+func (m Method) GenerateAuthenticationString(password, salt []byte) ([]byte, error) {
 	switch m {
 	case MySQLNativePassword:
 		return mysqlpassword.NewMySQLNative().Encrypt(password, salt)
@@ -50,7 +50,7 @@ func (m AuthenticationMethod) GenerateAuthenticationString(password, salt []byte
 	}
 }
 
-func (m AuthenticationMethod) GenerateAuthenticationStringWithoutSalt(password []byte) ([]byte, error) {
+func (m Method) GenerateAuthenticationStringWithoutSalt(password []byte) ([]byte, error) {
 	var salt []byte
 	switch m {
 	case MySQLNativePassword:
@@ -73,7 +73,70 @@ func (m AuthenticationMethod) GenerateAuthenticationStringWithoutSalt(password [
 	return m.GenerateAuthenticationString(password, salt)
 }
 
-func (m AuthenticationMethod) Validate(authenticationStr, password []byte) error {
+// ChallengeResponse process 'Challenge-Response' authentication.
+// It does not need know plaintext password, only compares challengeData with authRes
+// that is from HandshakeResponse or AuthSwitchResponse packet.
+// It's faster than 'Re-Ascertain-Password'.
+//
+// ChallengeResponse return ErrMismatch if validation does not match.
+//
+// challengeData format:
+//	mysql_native_password -> SHA1(SHA1(password))
+// 	sha256_password -> not support 'Challenge-Response'
+// 	caching_sha2_password -> SHA256(SHA256(password))
+func (m Method) ChallengeResponse(challengeData, authRes, salt []byte) error {
+	switch m {
+	case MySQLNativePassword:
+		h := sha1.New()
+
+		h.Write(salt)
+		h.Write(challengeData)
+		stage1 := h.Sum(nil)
+
+		for i := range stage1 {
+			stage1[i] ^= authRes[i]
+		}
+
+		h.Reset()
+		h.Write(stage1)
+		stage2 := h.Sum(nil)
+
+		if !bytes.Equal(stage2, challengeData) {
+			return ErrMismatch
+		}
+		return nil
+
+	case CachingSha2Password:
+		h := sha256.New()
+
+		h.Write(challengeData)
+		h.Write(salt)
+		stage1 := h.Sum(nil)
+
+		for i := range stage1 {
+			stage1[i] ^= authRes[i]
+		}
+
+		h.Reset()
+		h.Write(stage1)
+		stage2 := h.Sum(nil)
+
+		if !bytes.Equal(stage2, challengeData) {
+			return ErrMismatch
+		}
+		return nil
+
+	default:
+		return ErrUnsupportedAuthenticationMethod
+	}
+}
+
+// ReAscertainPassword process 'Re-Ascertain-Password' authentication.
+// It needs plaintext password and recalculate authentication_string.
+// It needs some time and is slower than 'Challenge-Response'.
+//
+// ReAscertainPassword return ErrMismatch if validation does not match.
+func (m Method) ReAscertainPassword(authenticationStr, password []byte) error {
 	var err error
 	switch m {
 	case MySQLNativePassword:
@@ -92,7 +155,7 @@ func (m AuthenticationMethod) Validate(authenticationStr, password []byte) error
 	return err
 }
 
-func (m AuthenticationMethod) EncryptPassword(password, salt []byte) ([]byte, error) {
+func (m Method) EncryptPassword(password, salt []byte) ([]byte, error) {
 	switch m {
 	// https://dev.mysql.com/doc/internals/en/secure-password-authentication.html
 	case MySQLNativePassword:
@@ -142,7 +205,7 @@ func (m AuthenticationMethod) EncryptPassword(password, salt []byte) ([]byte, er
 	}
 }
 
-func (m AuthenticationMethod) GenerateChallengeData(password []byte) ([]byte, error) {
+func (m Method) GenerateChallengeData(password []byte) ([]byte, error) {
 	switch m {
 	case MySQLNativePassword:
 		h := sha1.New()
@@ -169,76 +232,7 @@ func (m AuthenticationMethod) GenerateChallengeData(password []byte) ([]byte, er
 	}
 }
 
-// ChallengeResponse process authentication.
-// It doesn't need know plaintext password, only compares hash values.
-// It's fast.
-//
-// challengeRes param:
-//	mysql_native_password -> SHA1(SHA1(password))
-// 	sha256_password -> not support ChallengeResponse
-// 	caching_sha2_password -> SHA256(SHA256(password))
-func (m AuthenticationMethod) ChallengeResponse(challengeRes, authRes, salt []byte) error {
-	switch m {
-	case MySQLNativePassword:
-		h := sha1.New()
-
-		h.Write(salt)
-		h.Write(challengeRes)
-		stage1 := h.Sum(nil)
-
-		for i := range stage1 {
-			stage1[i] ^= authRes[i]
-		}
-
-		h.Reset()
-		h.Write(stage1)
-		stage2 := h.Sum(nil)
-
-		if !bytes.Equal(stage2, challengeRes) {
-			return ErrMismatch
-		}
-		return nil
-
-	case CachingSha2Password:
-		h := sha256.New()
-
-		h.Write(challengeRes)
-		h.Write(salt)
-		stage1 := h.Sum(nil)
-
-		for i := range stage1 {
-			stage1[i] ^= authRes[i]
-		}
-
-		h.Reset()
-		h.Write(stage1)
-		stage2 := h.Sum(nil)
-
-		if !bytes.Equal(stage2, challengeRes) {
-			return ErrMismatch
-		}
-		return nil
-
-	default:
-		return ErrUnsupportedAuthenticationMethod
-	}
-}
-
-// ReAscertainPassword process authentication.
-// It needs plaintext password and recalculate authentication_string.
-// It needs some time and is slower than ChallengeResponse.
-func (m AuthenticationMethod) ReAscertainPassword() {
-	//switch m {
-	//case MySQLNativePassword:
-	//	hexChallengeResStr := strings.ToUpper(hex.EncodeToString(challengeRes))
-	//	if !bytes.Equal([]byte(hexChallengeResStr), user.AuthenticationString[1:]) {
-	//		return err
-	//	}
-	//	return nil
-	//}
-}
-
-func (m AuthenticationMethod) String() string {
+func (m Method) String() string {
 	switch m {
 	case MySQLNativePassword:
 		return "mysql_native_password"
@@ -248,56 +242,5 @@ func (m AuthenticationMethod) String() string {
 		return "caching_sha2_password"
 	default:
 		return ErrUnsupportedAuthenticationMethod.Error()
-	}
-}
-
-// TODO
-func EncryptPassword(plugin AuthenticationMethod, password, salt []byte) ([]byte, error) {
-	switch plugin {
-	// https://dev.mysql.com/doc/internals/en/secure-password-authentication.html
-	case MySQLNativePassword:
-		h := sha1.New()
-		h.Write(password)
-		stage1 := h.Sum(nil)
-
-		h.Reset()
-		h.Write(stage1)
-		stage2 := h.Sum(nil)
-
-		mix := make([]byte, len(salt)+len(stage2))
-		copy(mix, salt)
-		copy(mix[len(salt):], stage2)
-		h.Reset()
-		h.Write(mix)
-		stage3 := h.Sum(nil)
-
-		stage4 := make([]byte, 20)
-		for i := 0; i < 20; i++ {
-			stage4[i] = stage1[i] ^ stage3[i]
-		}
-		return stage4, nil
-
-	// XOR(SHA256(PASSWORD), SHA256(SHA256(SHA256(PASSWORD)), seed_bytes))
-	case CachingSha2Password:
-		h := sha256.New()
-		h.Write(password)
-		stage1 := h.Sum(nil)
-
-		h.Reset()
-		h.Write(stage1)
-		stage2 := h.Sum(nil)
-
-		h.Reset()
-		h.Write(stage2)
-		h.Write(salt)
-		stage3 := h.Sum(nil)
-
-		for i := range stage1 {
-			stage1[i] ^= stage3[i]
-		}
-		return stage1, nil
-
-	default:
-		return nil, ErrUnsupportedAuthenticationMethod
 	}
 }

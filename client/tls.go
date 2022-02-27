@@ -55,7 +55,7 @@ func (c *conn) switchToTLS() error {
 	return nil
 }
 
-func (c *conn) writeSSLRequestPacket(capabilities flag.CapabilityFlag) error {
+func (c *conn) writeSSLRequestPacket(capabilities flag.Capability) error {
 	return c.WritePacket(&packet.SSLRequest{
 		ClientCapabilityFlags: capabilities,
 		MaxPacketSize:         maxPacketSize,

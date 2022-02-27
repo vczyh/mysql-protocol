@@ -12,7 +12,7 @@ import (
 )
 
 type Conn interface {
-	Capabilities() flag.CapabilityFlag
+	Capabilities() flag.Capability
 	AffectedRows() uint64
 	LastInsertId() uint64
 
@@ -51,7 +51,7 @@ type conn struct {
 
 	mysqlConn mysql.Conn
 
-	status       flag.StatusFlag
+	status       flag.Status
 	affectedRows uint64
 	lastInsertId uint64
 }
@@ -137,7 +137,7 @@ func (c *conn) handleHandshake() (*packet.Handshake, error) {
 	return packet.ParseHandshake(data)
 }
 
-func (c *conn) writeHandshakeResponsePacket(plugin auth.AuthenticationMethod, authData []byte) error {
+func (c *conn) writeHandshakeResponsePacket(plugin auth.Method, authData []byte) error {
 	passwordEncrypted, err := auth.EncryptPassword(plugin, []byte(c.password), authData)
 	if err != nil {
 		return err
@@ -163,7 +163,7 @@ func (c *conn) writeHandshakeResponsePacket(plugin auth.AuthenticationMethod, au
 	return c.WritePacket(pkt)
 }
 
-func (c *conn) defaultCapabilities() flag.CapabilityFlag {
+func (c *conn) defaultCapabilities() flag.Capability {
 	return flag.ClientProtocol41 |
 		flag.ClientSecureConnection |
 		flag.ClientPluginAuth |
@@ -241,7 +241,7 @@ func (c *conn) readOKERRPacket() error {
 	return c.handleOKERRPacket(data)
 }
 
-func (c *conn) Capabilities() flag.CapabilityFlag {
+func (c *conn) Capabilities() flag.Capability {
 	return c.mysqlConn.Capabilities()
 }
 

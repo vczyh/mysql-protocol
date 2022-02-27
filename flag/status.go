@@ -1,27 +1,27 @@
 package flag
 
-type StatusFlag uint16
+type Status uint16
 
 // TODO change to iota
 // Status Flags: https://dev.mysql.com/doc/internals/en/status-flags.html
 const (
-	ServerStatusInTrans            StatusFlag = 0x0001
-	ServerStatusAutocommit                    = 0x0002
-	ServerMoreResultsExists                   = 0x0008
-	ServerStatusNoGoodIndexUsed               = 0x0010
-	ServerStatusNoIndexUsed                   = 0x0020
-	ServerStatusCursorExists                  = 0x0040
-	ServerStatusLastRowSent                   = 0x0080
-	ServerStatusDbDropped                     = 0x0100
-	ServerStatusNoBackslashEscapes            = 0x0200
-	ServerStatusMetadataChanged               = 0x0400
-	ServerQueryWasSlow                        = 0x0800
-	ServerPsOutParams                         = 0x1000
-	ServerStatusInTransReadonly               = 0x2000
-	ServerSessionStateChanged                 = 0x4000
+	ServerStatusInTrans            Status = 0x0001
+	ServerStatusAutocommit                = 0x0002
+	ServerMoreResultsExists               = 0x0008
+	ServerStatusNoGoodIndexUsed           = 0x0010
+	ServerStatusNoIndexUsed               = 0x0020
+	ServerStatusCursorExists              = 0x0040
+	ServerStatusLastRowSent               = 0x0080
+	ServerStatusDbDropped                 = 0x0100
+	ServerStatusNoBackslashEscapes        = 0x0200
+	ServerStatusMetadataChanged           = 0x0400
+	ServerQueryWasSlow                    = 0x0800
+	ServerPsOutParams                     = 0x1000
+	ServerStatusInTransReadonly           = 0x2000
+	ServerSessionStateChanged             = 0x4000
 )
 
-func (s StatusFlag) String() string {
+func (s Status) String() string {
 	switch s {
 	case ServerStatusInTrans:
 		return "SERVER_STATUS_IN_TRANS"
@@ -50,8 +50,6 @@ func (s StatusFlag) String() string {
 	case ServerStatusInTransReadonly:
 		return "SERVER_STATUS_IN_TRANS_READONLY"
 	default:
-		return "Unknown StatusFlag"
+		return "Unknown Status"
 	}
 }
-
-type CapabilityFlag uint32

@@ -8,15 +8,28 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"github.com/vczyh/mysql-protocol/auth"
 	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/mysqlerror"
 	"github.com/vczyh/mysql-protocol/packet"
 	mysqlrand "github.com/vczyh/mysql-protocol/rand"
+	"net"
 	"os"
+	"path"
+)
+
+var (
+	ErrPrivateKeyNotFond = errors.New("auth: private key not found")
+)
+
+const (
+	PrivateKeyName = "private_key.pem"
+	PublicKeyName  = "public_key.pem"
 )
 
 func (s *server) auth(conn mysql.Conn) error {
@@ -25,30 +38,33 @@ func (s *server) auth(conn mysql.Conn) error {
 		return err
 	}
 
-	hsr, err := s.handleTLSAndHandshakeResponse(conn)
+	hsr, err := s.handleTLSAndHandshakeResponsePacket(conn)
 	if err != nil {
 		return err
-	}
-
-	if conn.Closed() {
-		return nil
 	}
 
 	authData := hs.GetAuthData()
 	user := hsr.GetUsername()
 	authRes := hsr.AuthRes
-	host := s.clientHost(conn)
+
+	var host string
+	switch v := conn.RemoteAddr().(type) {
+	case *net.TCPAddr:
+		host = v.IP.String()
+	}
 
 	errAccessDenied := mysqlerror.AccessDenied.Build(user, host, "YES")
 
-	key, err := s.userProvider.Key(user, host)
+	key, err := s.config.UserProvider.Key(user, host)
 	if err != nil {
 		return err
 	}
 
-	method, err := s.userProvider.AuthenticationMethod(key)
+	method, err := s.config.UserProvider.AuthenticationMethod(key)
 	if err != nil {
-		// TODO maybe return user not found error
+		if err == ErrAccessDenied {
+			return errAccessDenied
+		}
 		return err
 	}
 
@@ -63,10 +79,30 @@ func (s *server) auth(conn mysql.Conn) error {
 		}
 	}
 
-	return s.authentication(conn, method, key, authRes, authData, errAccessDenied)
+	if err := s.authentication(conn, method, key, authRes, authData, errAccessDenied); err != nil {
+		return err
+	}
+
+	err = s.config.UserProvider.Authorization(key, &AuthorizationRequest{
+		Database: func() string {
+			if conn.Capabilities()&flag.ClientConnectWithDB != 0 {
+				return hsr.GetDatabase()
+			}
+			return ""
+		}(),
+		TLSed: conn.TLSed(),
+	})
+	if err != nil {
+		if err == ErrAccessDenied {
+			return errAccessDenied
+		}
+		return err
+	}
+
+	return nil
 }
 
-func (s *server) writeAuthSwitchRequestPacket(conn mysql.Conn, method auth.AuthenticationMethod) ([]byte, error) {
+func (s *server) writeAuthSwitchRequestPacket(conn mysql.Conn, method auth.Method) ([]byte, error) {
 	authData := mysqlrand.Bytes(20)
 	return authData, conn.WritePacket(packet.NewAuthSwitchRequest(method, append(authData, 0x00)))
 }
@@ -79,36 +115,39 @@ func (s *server) handleAuthSwitchResponsePacket(conn mysql.Conn) ([]byte, error)
 	return packet.ParseAuthSwitchResponse(data)
 }
 
-func (s *server) authentication(conn mysql.Conn, method auth.AuthenticationMethod, key string,
+func (s *server) authentication(conn mysql.Conn, method auth.Method, key string,
 	authRes, salt []byte, errAccessDenied error) error {
 
 	switch method {
 	case auth.MySQLNativePassword:
-		as, err := s.userProvider.AuthenticationString(key)
+		as, err := s.config.UserProvider.AuthenticationString(key)
 		if err != nil {
-			// TODO maybe error is not found
+			if err == ErrAccessDenied {
+				return errAccessDenied
+			}
 			return err
 		}
 		if len(as) != 41 {
-			// TODO go errors
 			return ErrInvalidAuthenticationStringFormat
 		}
-		challengeRes, err := hex.DecodeString(string(bytes.ToLower(as[1:])))
+		challengeData, err := hex.DecodeString(string(bytes.ToLower(as[1:])))
 		if err != nil {
 			return err
 		}
 
-		if err := method.ChallengeResponse(challengeRes, authRes, salt); err != nil {
+		if err := method.ChallengeResponse(challengeData, authRes, salt); err != nil {
 			if err == auth.ErrMismatch {
 				return errAccessDenied
 			}
 			return err
 		}
-		return conn.WriteEmptyOK()
 
 	case auth.SHA256Password:
-		as, err := s.userProvider.AuthenticationString(key)
+		as, err := s.config.UserProvider.AuthenticationString(key)
 		if err != nil {
+			if err == ErrAccessDenied {
+				return errAccessDenied
+			}
 			return err
 		}
 
@@ -117,34 +156,31 @@ func (s *server) authentication(conn mysql.Conn, method auth.AuthenticationMetho
 			return err
 		}
 
-		if err := method.Validate(as, password); err != nil {
+		if err := method.ReAscertainPassword(as, password); err != nil {
 			if err == auth.ErrMismatch {
 				return errAccessDenied
 			}
 			return err
 		}
-		return conn.WriteEmptyOK()
 
 	// https://dev.mysql.com/blog-archive/preparing-your-community-connector-for-mysql-8-part-2-sha256/
 	// https://dev.mysql.com/doc/dev/mysql-server/latest/page_caching_sha2_authentication_exchanges.html
 	case auth.CachingSha2Password:
-		challengeRes := s.sha2Cache.Get(key)
-		if challengeRes != nil {
-			// Fast authentication
+		challengeData := s.config.SHA2Cache.Get(key)
+		if challengeData != nil {
+			// fast authentication
 			if err := conn.WritePacket(packet.NewAuthMoreData([]byte{0x03})); err != nil {
 				return err
 			}
 
-			if err := method.ChallengeResponse(challengeRes, authRes, salt); err != nil {
+			if err := method.ChallengeResponse(challengeData, authRes, salt); err != nil {
 				if err == auth.ErrMismatch {
 					return conn.WriteError(errAccessDenied)
 				}
 				return err
 			}
-			return conn.WriteEmptyOK()
-
 		} else {
-			// Full authentication
+			// full authentication
 			if err := conn.WritePacket(packet.NewAuthMoreData([]byte{0x04})); err != nil {
 				return err
 			}
@@ -153,50 +189,91 @@ func (s *server) authentication(conn mysql.Conn, method auth.AuthenticationMetho
 			if err != nil {
 				return err
 			}
-
-			as, err := s.userProvider.AuthenticationString(key)
+			as, err := s.config.UserProvider.AuthenticationString(key)
 			if err != nil {
 				return err
 			}
-
-			if err := method.Validate(as, password); err != nil {
+			if err := method.ReAscertainPassword(as, password); err != nil {
 				if err == auth.ErrMismatch {
 					return errAccessDenied
 				}
 				return err
 			}
+
 			challengeData, err := method.GenerateChallengeData(password)
 			if err != nil {
 				return err
 			}
-			s.sha2Cache.Put(key, challengeData)
-			return conn.WriteEmptyOK()
+			s.config.SHA2Cache.Put(key, challengeData)
 		}
 
 	default:
 		return auth.ErrUnsupportedAuthenticationMethod
 	}
+
+	return nil
+}
+
+func (s *server) writePublicKeyPacket(conn mysql.Conn, publicKeyBytes []byte) error {
+	if len(publicKeyBytes) == 0 {
+		return mysqlerror.NewWithoutSQLState("", code.ErrSendToClient, "public key not setting")
+	}
+	return conn.WritePacket(packet.NewAuthMoreData(publicKeyBytes))
 }
 
 func (s *server) sha256Password(conn mysql.Conn, authRes, salt []byte) ([]byte, error) {
+	if conn.TLSed() {
+		if len(authRes) == 0 {
+			return nil, nil
+		}
+		return authRes[:len(authRes)-1], nil
+	}
+
 	if len(authRes) != 1 || authRes[0] != 0x01 {
 		return nil, packet.ErrPacketData
 	}
-	if err := s.writePublicKeyPacket(conn); err != nil {
+	if err := s.writePublicKeyPacket(conn, s.sha256PasswordPublicKeyBytes); err != nil {
 		return nil, err
 	}
 
-	return s.plaintextPassword(conn, salt)
+	return s.plaintextPassword(conn, s.sha256PasswordPrivateKey, salt)
 }
 
-func (s *server) plaintextPassword(conn mysql.Conn, salt []byte) ([]byte, error) {
+func (s *server) cachingSHA2Password(conn mysql.Conn, salt []byte) ([]byte, error) {
 	data, err := conn.ReadPacket()
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO private key is nil
-	plain, err := rsa.DecryptOAEP(sha1.New(), rand.Reader, s.privateKey, data[4:], nil)
+	if conn.TLSed() {
+		authRes := data[4:]
+		if len(authRes) == 0 {
+			return nil, nil
+		}
+		return authRes[:len(authRes)-1], nil
+	} else {
+		if !packet.IsRequestPublicKey(data) {
+			return nil, packet.ErrPacketData
+		}
+
+		if err := s.writePublicKeyPacket(conn, s.cachingSHA2PasswordPublicKeyBytes); err != nil {
+			return nil, err
+		}
+
+		return s.plaintextPassword(conn, s.cachingSHA2PasswordPrivateKey, salt)
+	}
+}
+
+func (s *server) plaintextPassword(conn mysql.Conn, privateKey *rsa.PrivateKey, salt []byte) ([]byte, error) {
+	data, err := conn.ReadPacket()
+	if err != nil {
+		return nil, err
+	}
+
+	if s.privateKey == nil {
+		return nil, ErrPrivateKeyNotFond
+	}
+	plain, err := rsa.DecryptOAEP(sha1.New(), rand.Reader, privateKey, data[4:], nil)
 	if err != nil {
 		return nil, err
 	}
@@ -212,49 +289,22 @@ func (s *server) plaintextPassword(conn mysql.Conn, salt []byte) ([]byte, error)
 	return plain[:len(plain)-1], nil
 }
 
-func (s *server) writePublicKeyPacket(conn mysql.Conn) error {
-	return conn.WritePacket(packet.NewAuthMoreData(s.publicKeyBytes))
-}
-
-func (s *server) cachingSHA2Password(conn mysql.Conn, salt []byte) ([]byte, error) {
-	data, err := conn.ReadPacket()
-	if err != nil {
-		return nil, err
-	}
-
-	if conn.TLS() {
-		// TODO
-		fmt.Println("TLS")
-		return nil, fmt.Errorf("TLS not finished")
-	} else {
-		if !packet.IsRequestPublicKey(data) {
-			return nil, packet.ErrPacketData
-		}
-
-		if err := s.writePublicKeyPacket(conn); err != nil {
-			return nil, err
-		}
-
-		return s.plaintextPassword(conn, salt)
-	}
-}
-
 func (s *server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error) {
 	salt1 := mysqlrand.Bytes(8)
 
 	hs := &packet.Handshake{
 		ProtocolVersion:   0x0a,
-		ServerVersion:     s.version,
+		ServerVersion:     s.config.Version,
 		ConnectionId:      conn.ConnectionId(),
 		Salt1:             salt1,
 		CharacterSet:      charset.Utf8mb40900AiCi,
 		StatusFlags:       flag.ServerStatusAutocommit,
 		AuthPluginDataLen: 21,
-		AuthPlugin:        s.defaultAuthMethod,
+		AuthPlugin:        s.config.DefaultAuthMethod,
 	}
 	hs.SetCapabilities(conn.Capabilities())
 
-	switch s.defaultAuthMethod {
+	switch s.config.DefaultAuthMethod {
 	case auth.MySQLNativePassword:
 		hs.Salt2 = mysqlrand.Bytes(13)
 	case auth.CachingSha2Password, auth.SHA256Password:
@@ -266,7 +316,7 @@ func (s *server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error
 	return hs, conn.WritePacket(hs)
 }
 
-func (s *server) handleTLSAndHandshakeResponse(conn mysql.Conn) (*packet.HandshakeResponse, error) {
+func (s *server) handleTLSAndHandshakeResponsePacket(conn mysql.Conn) (*packet.HandshakeResponse, error) {
 	data, err := conn.ReadPacket()
 	if err != nil {
 		return nil, err
@@ -274,7 +324,7 @@ func (s *server) handleTLSAndHandshakeResponse(conn mysql.Conn) (*packet.Handsha
 
 	// SSL request
 	if len(data) == 4+4+4+1+23 {
-		if err := s.handleTLS(data, conn); err != nil {
+		if err := s.handleTLSPacket(data, conn); err != nil {
 			return nil, err
 		}
 		if data, err = conn.ReadPacket(); err != nil {
@@ -293,31 +343,190 @@ func (s *server) handleTLSAndHandshakeResponse(conn mysql.Conn) (*packet.Handsha
 	return hs, nil
 }
 
-func (s *server) buildKeyPair() error {
-	if s.privatePath != "" {
-		privateBytes, err := os.ReadFile(s.privatePath)
-		if err != nil {
-			return err
-		}
+func (s *server) readSHA256PasswordKeyPair() (err error) {
+	privateKeyPath := s.config.SHA256PasswordPrivateKeyPath
+	publicKeyPath := s.config.SHA256PasswordPublicKeyPath
 
-		block, rest := pem.Decode(privateBytes)
-		if block == nil {
-			return fmt.Errorf("no pem data found, data: %s", rest)
-		}
-
-		s.privateKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-		if err != nil {
-			return err
-		}
+	if privateKeyPath == "" || publicKeyPath == "" {
+		s.sha256PasswordPrivateKey = s.privateKey
+		s.sha256PasswordPublicKeyBytes = s.publicKeyBytes
+		return nil
 	}
 
-	if s.publicPath != "" {
-		publicKeyBytes, err := os.ReadFile(s.publicPath)
-		if err != nil {
-			return err
-		}
-		s.publicKeyBytes = publicKeyBytes
+	s.sha256PasswordPrivateKey,
+		s.sha256PasswordPublicKeyBytes,
+		err = readKeyPair(privateKeyPath, publicKeyPath)
+	return err
+}
+
+func (s *server) readCachingSHA2PasswordKeyPair() (err error) {
+	privateKeyPath := s.config.CachingSHA2PasswordPrivateKeyPath
+	publicKeyPath := s.config.CachingSHA2PasswordPublicKeyPath
+
+	if privateKeyPath == "" || publicKeyPath == "" {
+		s.cachingSHA2PasswordPrivateKey = s.privateKey
+		s.cachingSHA2PasswordPublicKeyBytes = s.publicKeyBytes
+		return nil
+	}
+
+	s.cachingSHA2PasswordPrivateKey,
+		s.cachingSHA2PasswordPublicKeyBytes,
+		err = readKeyPair(privateKeyPath, publicKeyPath)
+	return err
+}
+
+func (s *server) generateReadKeyPair() (err error) {
+	dir := s.config.AutoGeneratedRSAKeysDir
+	privateKeyPath := path.Join(dir, PrivateKeyName)
+	publicKeyPath := path.Join(dir, PublicKeyName)
+
+	// If private/public key-pair have been existed in local file, will read them
+	// and not generate key-pair.
+	isExist, err := s.isAutoGeneratedRSAKeysExist()
+	if err != nil {
+		return err
+	}
+	if isExist {
+		s.privateKey, s.publicKeyBytes, err = readKeyPair(privateKeyPath, publicKeyPath)
+		return err
+	}
+
+	if !s.config.IsAutoGenerateRSAKeys {
+		return nil
+	}
+
+	// Generate private/public key-pair.
+	s.privateKey, err = rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+
+	publicKeyDerBytes, err := x509.MarshalPKIXPublicKey(&s.privateKey.PublicKey)
+	if err != nil {
+		return err
+	}
+
+	buf := new(bytes.Buffer)
+	if err := pem.Encode(buf, &pem.Block{Type: "PUBLIC KEY", Bytes: publicKeyDerBytes}); err != nil {
+		return err
+	}
+	s.publicKeyBytes = buf.Bytes()
+
+	if s.config.AutoGeneratedRSAKeysDir == "" {
+		return nil
+	}
+
+	// Write private/public key-pair to file.
+	privateKeyDerBytes, err := x509.MarshalPKCS8PrivateKey(s.privateKey)
+	if err != nil {
+		return err
+	}
+	if err := writePEMFile(true, privateKeyPath, &pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyDerBytes}); err != nil {
+		return err
+	}
+
+	out, err := openPEMFile(false, publicKeyPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err = out.Write(s.publicKeyBytes); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+func (s *server) isAutoGeneratedRSAKeysExist() (bool, error) {
+	dir := s.config.AutoGeneratedRSAKeysDir
+	if dir == "" {
+		return false, nil
+	}
+
+	isExistFunc := func(name string) (bool, error) {
+		_, err := os.Stat(path.Join(dir, name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	}
+
+	isPrivateKeyExist, err := isExistFunc(PrivateKeyName)
+	if err != nil {
+		return false, err
+	}
+	isPublicKeyExist, err := isExistFunc(PublicKeyName)
+	if err != nil {
+		return false, err
+	}
+
+	if isPrivateKeyExist || isPublicKeyExist {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func readKeyPair(privateKeyPath, publicKeyPath string) (privateKey *rsa.PrivateKey,
+	publicKeyBytes []byte, err error) {
+
+	privateBytes, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	block, rest := pem.Decode(privateBytes)
+	if block == nil {
+		return nil, nil, fmt.Errorf("no pem data found, data: %s", rest)
+	}
+
+	privateKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		privateKeyGeneric, err2 := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err2 != nil {
+			return nil, nil, err
+		}
+		privateKey = privateKeyGeneric.(*rsa.PrivateKey)
+	}
+
+	publicKeyBytes, err = os.ReadFile(publicKeyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return privateKey, publicKeyBytes, nil
+}
+
+func encodePEM(b *pem.Block) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := pem.Encode(&buf, b); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func writePEMFile(isPrivateKey bool, pemFile string, block *pem.Block) error {
+	out, err := openPEMFile(isPrivateKey, pemFile)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	return pem.Encode(out, block)
+}
+
+func openPEMFile(isPrivateKey bool, filename string) (*os.File, error) {
+	if err := mkdirParent(filename); err != nil {
+		return nil, err
+	}
+
+	if isPrivateKey {
+		return os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0600)
+	}
+	return os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0644)
+}
+
+func mkdirParent(filename string) error {
+	return os.MkdirAll(path.Dir(filename), 0751)
 }

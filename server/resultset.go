@@ -131,7 +131,7 @@ func fillColumnDefinition(val interface{}, cd *packet.ColumnDefinition) error {
 		cd.ColumnType = packet.MySQLTypeVarString
 	case nil:
 		cd.ColumnType = packet.MySQLTypeNull
-	case time.Time: // TODO delete?
+	case time.Time:
 		cd.ColumnType = packet.MySQLTypeDatetime
 	default:
 		return fmt.Errorf("unsupported column value type %T", val)

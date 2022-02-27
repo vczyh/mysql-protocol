@@ -10,7 +10,7 @@ import (
 type SSLRequest struct {
 	Header
 
-	ClientCapabilityFlags flag.CapabilityFlag
+	ClientCapabilityFlags flag.Capability
 	MaxPacketSize         uint32
 	CharacterSet          *charset.Collation
 }
@@ -26,7 +26,7 @@ func ParseSSLRequest(data []byte) (*SSLRequest, error) {
 	}
 
 	// Client Capability Flags
-	p.ClientCapabilityFlags = flag.CapabilityFlag(uint32(FixedLengthInteger.Get(buf.Next(4))))
+	p.ClientCapabilityFlags = flag.Capability(uint32(FixedLengthInteger.Get(buf.Next(4))))
 
 	// Max Packet Size
 	p.MaxPacketSize = uint32(FixedLengthInteger.Get(buf.Next(4)))
@@ -48,7 +48,7 @@ func ParseSSLRequest(data []byte) (*SSLRequest, error) {
 	return &p, nil
 }
 
-func (p *SSLRequest) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *SSLRequest) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 	payload.Write(FixedLengthInteger.Dump(uint64(p.ClientCapabilityFlags), 4))
 

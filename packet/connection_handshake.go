@@ -17,13 +17,13 @@ type Handshake struct {
 	ServerVersion           string
 	ConnectionId            uint32
 	Salt1                   []byte
-	CapabilityFlags         flag.CapabilityFlag
+	CapabilityFlags         flag.Capability
 	CharacterSet            *charset.Collation
-	StatusFlags             flag.StatusFlag
-	ExtendedCapabilityFlags flag.CapabilityFlag
+	StatusFlags             flag.Status
+	ExtendedCapabilityFlags flag.Capability
 	AuthPluginDataLen       uint8
 	Salt2                   []byte
-	AuthPlugin              auth.AuthenticationMethod
+	AuthPlugin              auth.Method
 }
 
 func ParseHandshake(bs []byte) (*Handshake, error) {
@@ -59,7 +59,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	buf.Next(1)
 
 	// Capability Flags
-	p.CapabilityFlags = flag.CapabilityFlag(FixedLengthInteger.Get(buf.Next(2)))
+	p.CapabilityFlags = flag.Capability(FixedLengthInteger.Get(buf.Next(2)))
 
 	if buf.Len() == 0 {
 		return &p, err
@@ -77,15 +77,15 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	p.CharacterSet = collation
 
 	// Status Flags
-	p.StatusFlags = flag.StatusFlag(FixedLengthInteger.Get(buf.Next(2)))
+	p.StatusFlags = flag.Status(FixedLengthInteger.Get(buf.Next(2)))
 
 	// ExtendedCapabilityFlags
-	p.ExtendedCapabilityFlags = flag.CapabilityFlag(FixedLengthInteger.Get(buf.Next(2)))
+	p.ExtendedCapabilityFlags = flag.Capability(FixedLengthInteger.Get(buf.Next(2)))
 
 	var capabilitiesBs = make([]byte, 4)
 	binary.LittleEndian.PutUint16(capabilitiesBs, uint16(p.CapabilityFlags))
 	binary.LittleEndian.PutUint16(capabilitiesBs[2:], uint16(p.ExtendedCapabilityFlags))
-	capabilities := flag.CapabilityFlag(binary.LittleEndian.Uint32(capabilitiesBs))
+	capabilities := flag.Capability(binary.LittleEndian.Uint32(capabilitiesBs))
 
 	if capabilities&flag.ClientPluginAuth != 0 {
 		// Length of auth-plugin-data
@@ -124,7 +124,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	return &p, nil
 }
 
-func (p *Handshake) GetCapabilities() flag.CapabilityFlag {
+func (p *Handshake) GetCapabilities() flag.Capability {
 	return p.CapabilityFlags | p.ExtendedCapabilityFlags
 }
 
@@ -137,12 +137,12 @@ func (p *Handshake) GetAuthData() []byte {
 	return salt
 }
 
-func (p *Handshake) SetCapabilities(capabilities flag.CapabilityFlag) {
+func (p *Handshake) SetCapabilities(capabilities flag.Capability) {
 	p.CapabilityFlags = capabilities & 0x0000ffff
 	p.ExtendedCapabilityFlags = capabilities & 0xffff0000
 }
 
-func (p *Handshake) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *Handshake) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 	// Protocol Version
 	payload.WriteByte(p.ProtocolVersion)
@@ -211,13 +211,13 @@ func (p *Handshake) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
 type HandshakeResponse struct {
 	Header
 
-	ClientCapabilityFlags flag.CapabilityFlag
+	ClientCapabilityFlags flag.Capability
 	MaxPacketSize         uint32
 	CharacterSet          *charset.Collation
 	Username              []byte // interpreted by CharacterSet
 	AuthRes               []byte
 	Database              []byte // interpreted by CharacterSet
-	AuthPlugin            auth.AuthenticationMethod
+	AuthPlugin            auth.Method
 
 	AttributeLen uint64
 	Attributes   []Attribute
@@ -239,7 +239,7 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 	}
 
 	// Client Capability Flags
-	p.ClientCapabilityFlags = flag.CapabilityFlag(uint32(FixedLengthInteger.Get(buf.Next(4))))
+	p.ClientCapabilityFlags = flag.Capability(uint32(FixedLengthInteger.Get(buf.Next(4))))
 
 	// Max Packet Size
 	p.MaxPacketSize = uint32(FixedLengthInteger.Get(buf.Next(4)))
@@ -325,7 +325,7 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 	return &p, nil
 }
 
-func (p *HandshakeResponse) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *HandshakeResponse) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 	// Max Packet Size
 	payload.Write(FixedLengthInteger.Dump(uint64(p.MaxPacketSize), 4))
@@ -394,4 +394,8 @@ func (p *HandshakeResponse) AddAttribute(key string, val string) {
 
 func (p *HandshakeResponse) GetUsername() string {
 	return string(p.Username)
+}
+
+func (p *HandshakeResponse) GetDatabase() string {
+	return string(p.Database)
 }

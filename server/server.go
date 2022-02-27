@@ -8,6 +8,7 @@ import (
 	"github.com/vczyh/mysql-protocol/auth"
 	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
+	"github.com/vczyh/mysql-protocol/mysqlerror"
 	"github.com/vczyh/mysql-protocol/mysqllog"
 	"github.com/vczyh/mysql-protocol/packet"
 	"math/big"
@@ -16,35 +17,33 @@ import (
 )
 
 type server struct {
-	port              int
-	version           string
-	defaultAuthMethod auth.AuthenticationMethod
-
-	userProvider UserProvider
-	sha2Cache    SHA2Cache
-
-	useSSL    bool
-	sslCA     string
-	sslCert   string
-	sslKey    string
+	config    *Config
 	tlsConfig *tls.Config
 
-	// private/public key-pair files for sha256_password or caching_sha2_password authentication
-	privatePath    string
-	publicPath     string
 	privateKey     *rsa.PrivateKey
 	publicKeyBytes []byte
 
-	h      Handler
-	logger mysqllog.Logger
+	cachingSHA2PasswordPrivateKey     *rsa.PrivateKey
+	cachingSHA2PasswordPublicKeyBytes []byte
+
+	sha256PasswordPrivateKey     *rsa.PrivateKey
+	sha256PasswordPublicKeyBytes []byte
+
+	caCert     tls.Certificate
+	serverCert tls.Certificate
+	clientCert tls.Certificate
 
 	l net.Listener
 }
 
-func NewServer(userProvider UserProvider, h Handler, opts ...Option) *server {
+func NewServer(userProvider UserProvider, handler Handler, opts ...Option) *server {
 	s := new(server)
-	s.userProvider = userProvider
-	s.h = h
+	s.config = &Config{
+		UserProvider:          userProvider,
+		Handler:               handler,
+		IsAutoGenerateRSAKeys: true,
+		IsAutoGenerateCerts:   true,
+	}
 
 	for _, opt := range opts {
 		opt.apply(s)
@@ -55,10 +54,11 @@ func NewServer(userProvider UserProvider, h Handler, opts ...Option) *server {
 
 func (s *server) Start() error {
 	if err := s.build(); err != nil {
+		s.config.Logger.Error(err)
 		return err
 	}
 
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", s.config.Port))
 	if err != nil {
 		return err
 	}
@@ -68,13 +68,13 @@ func (s *server) Start() error {
 	for {
 		conn, err := s.l.Accept()
 		if err != nil {
-			s.logger.Error(fmt.Errorf("tcp accept failed: %v", err))
+			s.config.Logger.Error(fmt.Errorf("tcp accept failed: %v", err))
 			continue
 		}
 
 		connId, err := s.applyForConnectionId()
 		if err != nil {
-			s.logger.Error(fmt.Errorf("apply for connection id failed: %v", err))
+			s.config.Logger.Error(fmt.Errorf("apply for connection id failed: %v", err))
 			continue
 		}
 		go s.handleConnection(mysql.NewServerConnection(conn, connId, s.defaultCapabilities()))
@@ -82,23 +82,35 @@ func (s *server) Start() error {
 }
 
 func (s *server) build() error {
-	if s.sha2Cache == nil {
-		s.sha2Cache = NewDefaultSHA2Cache()
+	if s.config.SHA2Cache == nil {
+		s.config.SHA2Cache = NewDefaultSHA2Cache()
 	}
 
-	if s.userProvider == nil {
+	if s.config.UserProvider == nil {
 		return fmt.Errorf("require UserProvider not nil")
 	}
 
-	if s.h == nil {
+	if s.config.Handler == nil {
 		return fmt.Errorf("require Handler not nil")
 	}
 
-	if s.logger == nil {
-		s.logger = mysqllog.NewDefaultLogger(mysqllog.SystemLevel, os.Stdout)
+	if s.config.Logger == nil {
+		s.config.Logger = mysqllog.NewDefaultLogger(mysqllog.SystemLevel, os.Stdout)
 	}
 
-	if err := s.buildKeyPair(); err != nil {
+	if err := s.generateReadKeyPair(); err != nil {
+		return err
+	}
+
+	if err := s.readSHA256PasswordKeyPair(); err != nil {
+		return err
+	}
+
+	if err := s.readCachingSHA2PasswordKeyPair(); err != nil {
+		return err
+	}
+
+	if err := s.generateReadCerts(); err != nil {
 		return err
 	}
 
@@ -113,9 +125,17 @@ func (s *server) handleConnection(conn mysql.Conn) {
 	defer s.closeConnection(conn)
 
 	if err := s.auth(conn); err != nil {
-		if err := conn.WriteError(err); err != nil {
-			s.logger.Error(fmt.Errorf("write error packet failed: %v", err))
+		if _, ok := err.(mysqlerror.Error); !ok {
+			s.config.Logger.Error(fmt.Errorf("auth error: %v", err))
 		}
+		if err := conn.WriteError(err); err != nil {
+			s.config.Logger.Error(fmt.Errorf("write error packet failed: %v", err))
+		}
+		return
+	}
+
+	if err := conn.WriteEmptyOK(); err != nil {
+		s.config.Logger.Error(fmt.Errorf("write empty ok packet failed: %v", err))
 		return
 	}
 
@@ -124,7 +144,7 @@ func (s *server) handleConnection(conn mysql.Conn) {
 			return
 		}
 		if err := s.handleCommand(conn); err != nil {
-			s.logger.Error(fmt.Errorf("can't handle command error: %v, so close the connection", err))
+			s.config.Logger.Error(fmt.Errorf("can't handle command error: %v, so close the connection", err))
 			return
 		}
 	}
@@ -138,7 +158,7 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 
 	switch {
 	case packet.IsPing(data):
-		err := s.h.Ping()
+		err := s.config.Handler.Ping()
 		if err == nil {
 			err = conn.WriteEmptyOK()
 		} else {
@@ -146,7 +166,7 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 		}
 
 	case packet.IsQuery(data):
-		rs, err := s.h.Query(string(data[5:]))
+		rs, err := s.config.Handler.Query(string(data[5:]))
 		if err != nil {
 			err = conn.WriteError(err)
 			break
@@ -155,16 +175,16 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 
 	case packet.IsQuit(data):
 		s.closeConnection(conn)
-		s.h.Quit()
+		s.config.Handler.Quit()
 
 	default:
-		s.h.Other(data, conn)
+		s.config.Handler.Other(data, conn)
 	}
 
 	return err
 }
 
-func (s *server) defaultCapabilities() flag.CapabilityFlag {
+func (s *server) defaultCapabilities() flag.Capability {
 	capabilities := flag.ClientLongPassword |
 		flag.ClientFoundRows |
 		flag.ClientLongFlag |
@@ -189,7 +209,7 @@ func (s *server) defaultCapabilities() flag.CapabilityFlag {
 	//generic.ClientSessionTrack |
 	//generic.ClientDeprecateEOF
 
-	if s.useSSL {
+	if s.config.UseSSL {
 		capabilities |= flag.ClientSSL
 	}
 
@@ -209,94 +229,114 @@ func (s *server) closeConnection(conn mysql.Conn) {
 		return
 	}
 	conn.Close()
-	s.h.OnClose(conn.ConnectionId())
-}
-
-func (s *server) clientHost(conn mysql.Conn) string {
-	addr := conn.RemoteAddr()
-	switch v := addr.(type) {
-	case *net.TCPAddr:
-		return v.IP.String()
-	default:
-		return ""
-	}
+	s.config.Handler.OnClose(conn.ConnectionId())
 }
 
 func WithPort(port int) Option {
 	return optionFun(func(s *server) {
-		s.port = port
+		s.config.Port = port
 	})
 }
 
 func WithVersion(version string) Option {
 	return optionFun(func(s *server) {
-		s.version = version
+		s.config.Version = version
 	})
 }
 
-func WithDefaultAuthMethod(method auth.AuthenticationMethod) Option {
+func WithDefaultAuthMethod(method auth.Method) Option {
 	return optionFun(func(s *server) {
-		s.defaultAuthMethod = method
+		s.config.DefaultAuthMethod = method
 	})
 }
 
 func WithUserProvider(userProvider UserProvider) Option {
 	return optionFun(func(s *server) {
-		s.userProvider = userProvider
+		s.config.UserProvider = userProvider
 	})
 }
 
 func WithSHA2Cache(cache SHA2Cache) Option {
 	return optionFun(func(s *server) {
-		s.sha2Cache = cache
+		s.config.SHA2Cache = cache
 	})
 }
 
 func WithLogger(logger mysqllog.Logger) Option {
 	return optionFun(func(s *server) {
-		s.logger = logger
+		s.config.Logger = logger
 	})
 }
 
 func WithUseSSL(useSSL bool) Option {
 	return optionFun(func(s *server) {
-		s.useSSL = useSSL
+		s.config.UseSSL = useSSL
+	})
+}
+
+func WithAutoGenerateCerts(isAutoGenerateCerts bool) Option {
+	return optionFun(func(s *server) {
+		s.config.IsAutoGenerateCerts = isAutoGenerateCerts
+	})
+}
+
+func WithAutoGeneratedCertsDir(autoGeneratedCertsDir string) Option {
+	return optionFun(func(s *server) {
+		s.config.AutoGeneratedCertsDir = autoGeneratedCertsDir
 	})
 }
 
 func WithSSLCA(sslCA string) Option {
 	return optionFun(func(s *server) {
-		s.sslCA = sslCA
+		s.config.SSLCA = sslCA
 	})
 }
 
 func WithSSLCert(sslCert string) Option {
 	return optionFun(func(s *server) {
-		s.sslCert = sslCert
+		s.config.SSLCert = sslCert
 	})
 }
 
 func WithSSLKey(sslKey string) Option {
 	return optionFun(func(s *server) {
-		s.sslKey = sslKey
+		s.config.SSLKey = sslKey
 	})
 }
 
-//func WithCachingSHA2PasswordAutoGenerateRSAKeys(private string) Option {
-//	return optionFun(func(s *server) {
-//		s.sslKey = sslKey
-//	})
-//}
+func WithAutoGenerateRSAKeys(isAutoGenerateRSAKeys bool) Option {
+	return optionFun(func(s *server) {
+		s.config.IsAutoGenerateRSAKeys = isAutoGenerateRSAKeys
+	})
+}
+
+func WithAutoGeneratedRSAKeysDir(keysDir string) Option {
+	return optionFun(func(s *server) {
+		s.config.AutoGeneratedRSAKeysDir = keysDir
+	})
+}
 
 func WithCachingSHA2PasswordPrivateKeyPath(privatePath string) Option {
 	return optionFun(func(s *server) {
-		s.privatePath = privatePath
+		s.config.CachingSHA2PasswordPrivateKeyPath = privatePath
 	})
 }
 
 func WithCachingSHA2PasswordPublicKeyPath(publicPath string) Option {
 	return optionFun(func(s *server) {
-		s.publicPath = publicPath
+		s.config.CachingSHA2PasswordPublicKeyPath = publicPath
+	})
+}
+
+func WithSHA256PasswordPrivateKeyPath(privatePath string) Option {
+	return optionFun(func(s *server) {
+		s.config.SHA256PasswordPrivateKeyPath = privatePath
+	})
+}
+
+func WithSHA256PasswordPublicKeyPath(publicPath string) Option {
+	return optionFun(func(s *server) {
+		s.config.SHA256PasswordPublicKeyPath = publicPath
 	})
 }
 

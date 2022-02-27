@@ -39,5 +39,12 @@ const ()
 
 // 50,000 to 51,999: Error codes reserved for use by third parties (not sent to clients).
 const (
-	ErrGeneral Code = 50000
+	// ErrSendToClient reserved for messages sent to clients.
+	ErrSendToClient Code = 50000
+
+	// ErrClient reserved only for use by the client library.
+	ErrClient Code = 50600
+
+	// ErrServer reserved for messages to be written to the error log (not sent to clients).
+	ErrServer Code = 51200
 )

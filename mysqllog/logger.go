@@ -14,11 +14,8 @@ var (
 // Logger https://dev.mysql.com/doc/refman/8.0/en/server-system-variables.html#sysvar_log_error_verbosity
 type Logger interface {
 	System(err error)
-
 	Info(err error)
-
 	Warn(err error)
-
 	Error(err error)
 }
 

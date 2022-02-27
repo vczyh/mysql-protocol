@@ -41,7 +41,7 @@ func (h *DefaultHandler) Query(query string) (ResultSet, error) {
 	p := parser.New()
 	stmtNode, err := p.ParseOneStmt(query, "", "")
 	if err != nil {
-		return nil, mysqlerror.NewWithoutSQLState("", code.ErrGeneral, err.Error())
+		return nil, mysqlerror.NewWithoutSQLState("", code.ErrSendToClient, err.Error())
 	}
 
 	switch v := stmtNode.(type) {
@@ -53,12 +53,12 @@ func (h *DefaultHandler) Query(query string) (ResultSet, error) {
 			},
 		)
 		if err != nil {
-			return nil, mysqlerror.NewWithoutSQLState("", code.ErrGeneral, err.Error())
+			return nil, mysqlerror.NewWithoutSQLState("", code.ErrSendToClient, err.Error())
 		}
 		return rs, nil
 
 	default:
-		return nil, mysqlerror.NewWithoutSQLState("", code.ErrGeneral, "unsupported statement type")
+		return nil, mysqlerror.NewWithoutSQLState("", code.ErrSendToClient, "unsupported statement type")
 	}
 }
 
@@ -67,7 +67,7 @@ func (h *DefaultHandler) Quit() {
 }
 
 func (h *DefaultHandler) Other(data []byte, conn mysql.Conn) {
-	if err := conn.WriteError(mysqlerror.NewWithoutSQLState("", code.ErrGeneral, "unsupported command")); err != nil {
+	if err := conn.WriteError(mysqlerror.NewWithoutSQLState("", code.ErrSendToClient, "unsupported command")); err != nil {
 		log.Printf("write packet error: %v\n", err)
 	}
 }

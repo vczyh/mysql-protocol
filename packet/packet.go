@@ -12,7 +12,7 @@ var (
 
 type Packet interface {
 	SetSequence(int)
-	Dump(flag.CapabilityFlag) ([]byte, error)
+	Dump(flag.Capability) ([]byte, error)
 }
 
 type Header struct {
@@ -36,7 +36,7 @@ func (h *Header) SetSequence(seq int) {
 	h.Seq = uint8(seq)
 }
 
-func (h *Header) Dump(flag.CapabilityFlag) ([]byte, error) {
+func (h *Header) Dump(flag.Capability) ([]byte, error) {
 	bs := FixedLengthInteger.Dump(uint64(h.Length), 3)
 	bs = append(bs, FixedLengthInteger.Dump(uint64(h.Seq), 1)...)
 	return bs, nil

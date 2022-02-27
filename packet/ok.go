@@ -12,7 +12,7 @@ type OK struct {
 	OKHeader            uint8
 	AffectedRows        uint64
 	LastInsertId        uint64
-	StatusFlags         flag.StatusFlag
+	StatusFlags         flag.Status
 	WarningCount        uint16
 	Info                []byte
 	SessionStateChanges []byte // todo
@@ -30,7 +30,7 @@ const (
 //	Data []byte
 //}
 
-func ParseOk(bs []byte, capabilities flag.CapabilityFlag) (*OK, error) {
+func ParseOk(bs []byte, capabilities flag.Capability) (*OK, error) {
 	var p OK
 	var err error
 
@@ -58,10 +58,10 @@ func ParseOk(bs []byte, capabilities flag.CapabilityFlag) (*OK, error) {
 
 	// Status Flags
 	if capabilities&flag.ClientProtocol41 != 0 {
-		p.StatusFlags = flag.StatusFlag(uint16(FixedLengthInteger.Get(buf.Next(2))))
+		p.StatusFlags = flag.Status(uint16(FixedLengthInteger.Get(buf.Next(2))))
 		p.WarningCount = uint16(FixedLengthInteger.Get(buf.Next(2)))
 	} else if capabilities&flag.ClientTransactions != 0 {
-		p.StatusFlags = flag.StatusFlag(uint16(FixedLengthInteger.Get(buf.Next(2))))
+		p.StatusFlags = flag.Status(uint16(FixedLengthInteger.Get(buf.Next(2))))
 	}
 
 	if capabilities&flag.ClientSessionTrack != 0 {
@@ -85,7 +85,7 @@ func ParseOk(bs []byte, capabilities flag.CapabilityFlag) (*OK, error) {
 	return &p, nil
 }
 
-func (p *OK) Dump(capabilities flag.CapabilityFlag) ([]byte, error) {
+func (p *OK) Dump(capabilities flag.Capability) ([]byte, error) {
 	var payload bytes.Buffer
 	payload.WriteByte(p.OKHeader)
 	payload.Write(LengthEncodedInteger.Dump(p.AffectedRows))
