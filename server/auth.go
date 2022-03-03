@@ -57,6 +57,9 @@ func (s *server) auth(conn mysql.Conn) error {
 
 	key, err := s.config.UserProvider.Key(user, host)
 	if err != nil {
+		if err == ErrAccessDenied {
+			return errAccessDenied
+		}
 		return err
 	}
 

@@ -38,7 +38,7 @@ func main() {
 		userProvider,
 		newTestHandler(),
 		server.WithPort(3306),
-		server.WithRSAKeysDir("/Users/zhangyuheng/tmp/certs/t1"),
+		//server.WithRSAKeysDir("/Users/zhangyuheng/tmp/certs/t1"),
 
 		//server.WithSHA256PasswordPrivateKeyPath("tmp/private_key.pem"),
 		//server.WithSHA256PasswordPublicKeyPath("tmp/public_key.pem"),
@@ -46,9 +46,9 @@ func main() {
 		//server.WithCachingSHA2PasswordPrivateKeyPath("tmp/private_key.pem"),
 		//server.WithCachingSHA2PasswordPublicKeyPath("tmp/public_key.pem"),
 
-		server.WithCertsDir("/Users/zhangyuheng/tmp/certs/t1"),
+		//server.WithCertsDir("/Users/zhangyuheng/tmp/certs/t1"),
 
-		server.WithUseSSL(true),
+		//server.WithUseSSL(true),
 		//server.WithSSLCA("tmp/ca.pem"),
 		//server.WithSSLCert("tmp/server-cert.pem"),
 		//server.WithSSLKey("tmp/server-key.pem"),
