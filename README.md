@@ -72,11 +72,11 @@ _ = srv.Start()
 | **`WithSSLCA()`** | automatically generate | The path name of the Certificate Authority (CA) certificate file in PEM format. The file contains a list of trusted SSL Certificate Authorities. |
 | **`WithSSLCert()`** | automatically generate | The path name of the server SSL public key certificate file in PEM format. |
 | **`WithSSLKey()`** | automatically generate | The path name of the server SSL private key file in PEM format. |
-| **`WithRSAKeysDir()`** | "" | At startup, the server automatically generates private and public key. Default don't write them to local file system.  If `WithRSAKeysDir()` not empty, write those files to the directory, otherwise read them instead of generating. The key pair is used by `sha256_password` when `WithSHA256PasswordPrivateKeyPath()` `WithSHA256PasswordPublicKeyPath()` are not specified, or used by `caching_sha2_password` when `WithCachingSHA2PasswordPrivateKeyPath()` `WithCachingSHA2PasswordPublicKeyPath()`are not specified. |
-| **`WithCachingSHA2PasswordPrivateKeyPath()`** | automatically generate |  |
-| **`WithCachingSHA2PasswordPublicKeyPath()`** | automatically generate |  |
-| **`WithSHA256PasswordPrivateKeyPath()`** | automatically generate |  |
-| **`WithSHA256PasswordPublicKeyPath()`** | automatically generate |  |
+| **`WithRSAKeysDir()`** | "" | At startup, the server automatically generates private and public key. Default don't write them to local file system.  If `WithRSAKeysDir()` not empty, write those files to the directory, otherwise read them instead of generating. The key pair is used by `sha256_password` when `WithSHA256PasswordPrivateKeyPath()`  and `WithSHA256PasswordPublicKeyPath()` are not specified, or used by `caching_sha2_password` when `WithCachingSHA2PasswordPrivateKeyPath()`  and `WithCachingSHA2PasswordPublicKeyPath()`are not specified. |
+| **`WithCachingSHA2PasswordPrivateKeyPath()`** | automatically generate | Its value is the path name of the RSA private key file for the `caching_sha2_password` authentication plugin. |
+| **`WithCachingSHA2PasswordPublicKeyPath()`** | automatically generate | Its value is the path name of the RSA public key file for the `caching_sha2_password` authentication plugin. |
+| **`WithSHA256PasswordPrivateKeyPath()`** | automatically generate | Its value is the path name of the RSA private key file for the `sha256_password` authentication plugin. |
+| **`WithSHA256PasswordPublicKeyPath()`** | automatically generate | Its value is the path name of the RSA public key file for the `sha256_password` authentication plugin. |
 
 
 
