@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/vczyh/mysql-protocol/flag"
-	"github.com/vczyh/mysql-protocol/mysqlerror"
+	"github.com/vczyh/mysql-protocol/myerrors"
 	"github.com/vczyh/mysql-protocol/packet"
 	"net"
 )
@@ -170,17 +170,12 @@ func (c *mysqlConn) WriteEmptyOK() error {
 }
 
 func (c *mysqlConn) WriteError(err error) error {
-	if err == nil {
+	if !myerrors.Is(err) {
 		return nil
 	}
 
-	mysqlErr, ok := err.(mysqlerror.Error)
-	if !ok {
-		return nil
-	}
-
-	if mysqlErr.CanSendToClient() {
-		return c.WritePacket(packet.NewERR(mysqlErr))
+	if myerrors.CanSendToClient(err) {
+		return c.WritePacket(packet.NewERR(err))
 	}
 	return nil
 }

@@ -2,7 +2,7 @@ package mysqllog
 
 import (
 	"errors"
-	"github.com/vczyh/mysql-protocol/mysqlerror"
+	"github.com/vczyh/mysql-protocol/myerrors"
 	"io"
 	"log"
 )
@@ -74,8 +74,8 @@ func (l *DefaultLogger) log(lev Level, err error) {
 	if lev < l.lev {
 		return
 	}
-	if mysqlErr, ok := err.(mysqlerror.Error); ok {
-		l.logger.Printf("%s %s\n", lev.String(), mysqlErr.Server())
+	if myerrors.Is(err) {
+		l.logger.Printf("%s %s\n", lev.String(), myerrors.Server(err))
 		return
 	}
 	l.logger.Printf("%s %s", lev.String(), err.Error())

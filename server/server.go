@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"github.com/vczyh/mysql-protocol/auth"
 	"github.com/vczyh/mysql-protocol/flag"
+	"github.com/vczyh/mysql-protocol/myerrors"
 	"github.com/vczyh/mysql-protocol/mysql"
-	"github.com/vczyh/mysql-protocol/mysqlerror"
 	"github.com/vczyh/mysql-protocol/mysqllog"
 	"github.com/vczyh/mysql-protocol/packet"
 	"math/big"
@@ -123,7 +123,7 @@ func (s *server) handleConnection(conn mysql.Conn) {
 	defer s.closeConnection(conn)
 
 	if err := s.auth(conn); err != nil {
-		if _, ok := err.(mysqlerror.Error); !ok {
+		if !myerrors.Is(err) {
 			s.config.Logger.Error(fmt.Errorf("auth error: %v", err))
 		}
 		if err := conn.WriteError(err); err != nil {

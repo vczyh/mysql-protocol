@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/flag"
-	"github.com/vczyh/mysql-protocol/mysqlerror"
+	"github.com/vczyh/mysql-protocol/myerrors"
 )
 
 // ERR https://dev.mysql.com/doc/internals/en/packet-ERR_Packet.html
@@ -13,20 +13,24 @@ type ERR struct {
 	Header
 
 	ERRHeader      uint8
-	ErrorCode      code.Code
+	ErrorCode      code.Err
 	SqlStateMarker byte
 	SqlState       string
 	ErrorMessage   string
 }
 
-func NewERR(mysqlErr mysqlerror.Error) *ERR {
+func NewERR(err error) *ERR {
+	fmt.Println(myerrors.Code(err))
+	fmt.Println(myerrors.SQLState(err))
+	fmt.Println(myerrors.Message(err))
 	return &ERR{
 		ERRHeader:      0xff,
-		ErrorCode:      mysqlErr.Code(),
-		SqlStateMarker: 0,
-		SqlState:       mysqlErr.SQLState(),
-		ErrorMessage:   mysqlErr.Message(),
+		ErrorCode:      myerrors.Code(err),
+		SqlStateMarker: 0x23,
+		SqlState:       myerrors.SQLState(err),
+		ErrorMessage:   myerrors.Message(err),
 	}
+
 }
 
 func ParseERR(bs []byte, capabilities flag.Capability) (*ERR, error) {
@@ -45,8 +49,8 @@ func ParseERR(bs []byte, capabilities flag.Capability) (*ERR, error) {
 	}
 	p.ERRHeader = buf.Next(1)[0]
 
-	// Error Code
-	p.ErrorCode = code.Code(FixedLengthInteger.Get(buf.Next(2)))
+	// Error Err
+	p.ErrorCode = code.Err(FixedLengthInteger.Get(buf.Next(2)))
 
 	if capabilities&flag.ClientProtocol41 != 0 {
 		if buf.Len() == 0 {
@@ -69,7 +73,7 @@ func (e *ERR) Dump(capabilities flag.Capability) ([]byte, error) {
 	// ERR Header
 	payload.WriteByte(e.ERRHeader)
 
-	// Error Code
+	// Error Err
 	payload.Write(FixedLengthInteger.Dump(uint64(e.ErrorCode), 2))
 
 	if capabilities&flag.ClientProtocol41 != 0 {

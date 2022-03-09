@@ -14,8 +14,8 @@ import (
 	"github.com/vczyh/mysql-protocol/charset"
 	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/flag"
+	"github.com/vczyh/mysql-protocol/myerrors"
 	"github.com/vczyh/mysql-protocol/mysql"
-	"github.com/vczyh/mysql-protocol/mysqlerror"
 	"github.com/vczyh/mysql-protocol/packet"
 	mysqlrand "github.com/vczyh/mysql-protocol/rand"
 	"net"
@@ -53,7 +53,7 @@ func (s *server) auth(conn mysql.Conn) error {
 		host = v.IP.String()
 	}
 
-	errAccessDenied := mysqlerror.AccessDenied.Build(user, host, "YES")
+	errAccessDenied := myerrors.AccessDenied.Build(user, host, "YES")
 
 	key, err := s.config.UserProvider.Key(user, host)
 	if err != nil {
@@ -219,7 +219,7 @@ func (s *server) authentication(conn mysql.Conn, method auth.Method, key string,
 
 func (s *server) writePublicKeyPacket(conn mysql.Conn, publicKeyBytes []byte) error {
 	if len(publicKeyBytes) == 0 {
-		return mysqlerror.NewWithoutSQLState("", code.ErrSendToClient, "public key not setting")
+		return myerrors.NewServer(code.ErrSendToClient, "public key not setting")
 	}
 	return conn.WritePacket(packet.NewAuthMoreData(publicKeyBytes))
 }

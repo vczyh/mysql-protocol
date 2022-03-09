@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"github.com/vczyh/mysql-protocol/code"
 	"github.com/vczyh/mysql-protocol/flag"
+	"github.com/vczyh/mysql-protocol/myerrors"
 	"github.com/vczyh/mysql-protocol/mysql"
-	"github.com/vczyh/mysql-protocol/mysqlerror"
 	"github.com/vczyh/mysql-protocol/packet"
 	"math/big"
 	"os"
@@ -36,7 +36,7 @@ func (s *server) handleTLSPacket(data []byte, conn mysql.Conn) error {
 
 	if pkt.ClientCapabilityFlags&flag.ClientSSL == 0 {
 		// ToDO SSL mysql error
-		return mysqlerror.NewWithoutSQLState("", code.ErrSendToClient, fmt.Sprintf("%s required", flag.ClientSSL))
+		return myerrors.NewServer(code.ErrSendToClient, fmt.Sprintf("%s required", flag.ClientSSL))
 	}
 
 	// TODO update capabilities
