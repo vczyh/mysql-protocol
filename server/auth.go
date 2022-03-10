@@ -17,7 +17,6 @@ import (
 	"github.com/vczyh/mysql-protocol/myerrors"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/packet"
-	mysqlrand "github.com/vczyh/mysql-protocol/rand"
 	"net"
 	"os"
 	"path"
@@ -106,7 +105,7 @@ func (s *server) auth(conn mysql.Conn) error {
 }
 
 func (s *server) writeAuthSwitchRequestPacket(conn mysql.Conn, method auth.Method) ([]byte, error) {
-	authData := mysqlrand.Bytes(20)
+	authData := auth.Bytes(20)
 	return authData, conn.WritePacket(packet.NewAuthSwitchRequest(method, append(authData, 0x00)))
 }
 
@@ -293,7 +292,7 @@ func (s *server) plaintextPassword(conn mysql.Conn, privateKey *rsa.PrivateKey, 
 }
 
 func (s *server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error) {
-	salt1 := mysqlrand.Bytes(8)
+	salt1 := auth.Bytes(8)
 
 	hs := &packet.Handshake{
 		ProtocolVersion:   0x0a,
@@ -309,9 +308,9 @@ func (s *server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error
 
 	switch s.config.DefaultAuthMethod {
 	case auth.MySQLNativePassword:
-		hs.Salt2 = mysqlrand.Bytes(13)
+		hs.Salt2 = auth.Bytes(13)
 	case auth.CachingSha2Password, auth.SHA256Password:
-		hs.Salt2 = append(mysqlrand.Bytes(12), 0x00)
+		hs.Salt2 = append(auth.Bytes(12), 0x00)
 	default:
 		return nil, auth.ErrUnsupportedAuthenticationMethod
 	}

@@ -2,7 +2,6 @@ package server
 
 import (
 	"github.com/vczyh/mysql-protocol/auth"
-	"github.com/vczyh/mysql-protocol/mysqllog"
 )
 
 type Config struct {
@@ -30,5 +29,5 @@ type Config struct {
 	CachingSHA2PasswordPublicKeyPath  string
 
 	Handler Handler
-	Logger  mysqllog.Logger
+	Logger  Logger
 }

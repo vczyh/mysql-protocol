@@ -9,7 +9,6 @@ import (
 	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/myerrors"
 	"github.com/vczyh/mysql-protocol/mysql"
-	"github.com/vczyh/mysql-protocol/mysqllog"
 	"github.com/vczyh/mysql-protocol/packet"
 	"math/big"
 	"net"
@@ -93,7 +92,7 @@ func (s *server) build() error {
 	}
 
 	if s.config.Logger == nil {
-		s.config.Logger = mysqllog.NewDefaultLogger(mysqllog.SystemLevel, os.Stdout)
+		s.config.Logger = NewDefaultLogger(SystemLevel, os.Stdout)
 	}
 
 	if err := s.generateReadKeyPair(); err != nil {
@@ -260,7 +259,7 @@ func WithSHA2Cache(cache SHA2Cache) Option {
 	})
 }
 
-func WithLogger(logger mysqllog.Logger) Option {
+func WithLogger(logger Logger) Option {
 	return optionFun(func(s *server) {
 		s.config.Logger = logger
 	})

@@ -1,4 +1,4 @@
-package mysqllog
+package server
 
 import (
 	"errors"

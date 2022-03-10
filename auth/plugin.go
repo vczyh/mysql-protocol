@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	mysqlpassword "github.com/vczyh/mysql-password"
-	"github.com/vczyh/mysql-protocol/rand"
 	"strconv"
 )
 
@@ -56,7 +55,7 @@ func (m Method) GenerateAuthenticationStringWithoutSalt(password []byte) ([]byte
 	case MySQLNativePassword:
 		salt = nil
 	case SHA256Password:
-		salt = rand.Bytes(20)
+		salt = Bytes(20)
 	case CachingSha2Password:
 		salt = make([]byte, 27)
 		copy(salt, "$A$")
@@ -67,7 +66,7 @@ func (m Method) GenerateAuthenticationStringWithoutSalt(password []byte) ([]byte
 		}
 		copy(salt[3:], val)
 		copy(salt[3+3:], "$")
-		copy(salt[3+3+1:], rand.Bytes(20))
+		copy(salt[3+3+1:], Bytes(20))
 	}
 
 	return m.GenerateAuthenticationString(password, salt)
