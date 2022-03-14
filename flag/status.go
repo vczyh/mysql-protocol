@@ -1,5 +1,7 @@
 package flag
 
+import "strings"
+
 type Status uint16
 
 // TODO change to iota
@@ -12,7 +14,7 @@ const (
 	ServerStatusNoIndexUsed               = 0x0020
 	ServerStatusCursorExists              = 0x0040
 	ServerStatusLastRowSent               = 0x0080
-	ServerStatusDbDropped                 = 0x0100
+	ServerStatusDBDropped                 = 0x0100
 	ServerStatusNoBackslashEscapes        = 0x0200
 	ServerStatusMetadataChanged           = 0x0400
 	ServerQueryWasSlow                    = 0x0800
@@ -22,6 +24,35 @@ const (
 )
 
 func (s Status) String() string {
+	var ss []Status
+	s.confirm(ServerStatusInTrans, &ss)
+	s.confirm(ServerStatusAutocommit, &ss)
+	s.confirm(ServerMoreResultsExists, &ss)
+	s.confirm(ServerStatusNoGoodIndexUsed, &ss)
+	s.confirm(ServerStatusNoIndexUsed, &ss)
+	s.confirm(ServerStatusCursorExists, &ss)
+	s.confirm(ServerStatusLastRowSent, &ss)
+	s.confirm(ServerStatusDBDropped, &ss)
+	s.confirm(ServerStatusNoBackslashEscapes, &ss)
+	s.confirm(ServerStatusMetadataChanged, &ss)
+	s.confirm(ServerQueryWasSlow, &ss)
+	s.confirm(ServerPsOutParams, &ss)
+	s.confirm(ServerStatusInTransReadonly, &ss)
+	s.confirm(ServerSessionStateChanged, &ss)
+
+	var sb strings.Builder
+	sb.WriteByte('[')
+	for i, status := range ss {
+		if i != 0 {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(status.string())
+	}
+	sb.WriteByte(']')
+	return sb.String()
+}
+
+func (s Status) string() string {
 	switch s {
 	case ServerStatusInTrans:
 		return "SERVER_STATUS_IN_TRANS"
@@ -37,7 +68,7 @@ func (s Status) String() string {
 		return "SERVER_STATUS_CURSOR_EXISTS"
 	case ServerStatusLastRowSent:
 		return "SERVER_STATUS_LAST_ROW_SENT"
-	case ServerStatusDbDropped:
+	case ServerStatusDBDropped:
 		return "SERVER_STATUS_DB_DROPPED"
 	case ServerStatusNoBackslashEscapes:
 		return "SERVER_STATUS_NO_BACKSLASH_ESCAPES"
@@ -49,7 +80,15 @@ func (s Status) String() string {
 		return "SERVER_PS_OUT_PARAMS"
 	case ServerStatusInTransReadonly:
 		return "SERVER_STATUS_IN_TRANS_READONLY"
+	case ServerSessionStateChanged:
+		return "SERVER_SESSION_STATE_CHANGED"
 	default:
 		return "Unknown Status"
+	}
+}
+
+func (s Status) confirm(o Status, t *[]Status) {
+	if s&o != 0 {
+		*t = append(*t, o)
 	}
 }

@@ -9,7 +9,7 @@ import (
 type AuthSwitchRequest struct {
 	Header
 
-	PayloadHeader uint8
+	PayloadHeader uint8 // 0xfe
 	AuthPlugin    auth.Method
 	AuthData      []byte
 }

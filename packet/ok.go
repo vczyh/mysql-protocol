@@ -9,7 +9,7 @@ import (
 type OK struct {
 	Header
 
-	OKHeader            uint8
+	OKHeader            uint8 // 0x00
 	AffectedRows        uint64
 	LastInsertId        uint64
 	StatusFlags         flag.Status

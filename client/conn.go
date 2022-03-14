@@ -21,8 +21,8 @@ type Conn interface {
 	WritePacket(packet.Packet) error
 	WriteCommandPacket(packet.Packet) error
 
-	Exec(string) (*mysql.Result, error)
-	Query(string) (Rows, error)
+	Exec(string) (mysql.Result, error)
+	Query(string) (*Rows, error)
 
 	Ping() error
 	Close() error
@@ -31,8 +31,6 @@ type Conn interface {
 const (
 	maxPacketSize = 1<<24 - 1
 )
-
-var defaultCollation = charset.Utf8mb4GeneralCi
 
 type conn struct {
 	host      string
@@ -57,18 +55,13 @@ type conn struct {
 }
 
 func CreateConnection(opts ...Option) (Conn, error) {
-	var err error
 	c := new(conn)
-
 	for _, opt := range opts {
 		opt.apply(c)
 	}
 
-	if c.loc == nil {
-		c.loc = time.Local
-	}
-	if c.collation == nil {
-		c.collation = defaultCollation
+	if err := c.build(); err != nil {
+		return nil, err
 	}
 
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.host, c.port))
@@ -80,14 +73,54 @@ func CreateConnection(opts ...Option) (Conn, error) {
 	return c, c.dial()
 }
 
+func (c *conn) Capabilities() flag.Capability {
+	return c.mysqlConn.Capabilities()
+}
+
+func (c *conn) AffectedRows() uint64 {
+	return c.affectedRows
+}
+
+func (c *conn) LastInsertId() uint64 {
+	return c.lastInsertId
+}
+
+func (c *conn) ReadPacket() ([]byte, error) {
+	return c.mysqlConn.ReadPacket()
+}
+
+func (c *conn) WritePacket(pkt packet.Packet) error {
+	return c.mysqlConn.WritePacket(pkt)
+}
+
+func (c *conn) WriteCommandPacket(pkt packet.Packet) error {
+	return c.mysqlConn.WriteCommandPacket(pkt)
+}
+
+func (c *conn) Ping() error {
+	if err := c.WriteCommandPacket(packet.NewCmd(packet.ComPing, nil)); err != nil {
+		return err
+	}
+	return c.readOKERRPacket()
+}
+
 func (c *conn) Close() error {
 	c.quit()
 	return c.mysqlConn.Close()
 }
 
+func (c *conn) build() error {
+	if c.loc == nil {
+		c.loc = time.Local
+	}
+	if c.collation == nil {
+		c.collation = charset.Utf8mb4GeneralCi
+	}
+	return nil
+}
+
 func (c *conn) quit() error {
-	pkt := packet.New(packet.ComQuit, nil)
-	if err := c.WriteCommandPacket(pkt); err != nil {
+	if err := c.WriteCommandPacket(packet.NewCmd(packet.ComQuit, nil)); err != nil {
 		return err
 	}
 
@@ -96,19 +129,11 @@ func (c *conn) quit() error {
 	if err == nil && packet.IsOK(data) {
 		return nil
 	}
-	return err
-}
-
-func (c *conn) Ping() error {
-	pkt := packet.New(packet.ComPing, nil)
-	if err := c.WriteCommandPacket(pkt); err != nil {
-		return err
-	}
-	return c.readOKERRPacket()
+	return nil
 }
 
 func (c *conn) dial() error {
-	handshake, err := c.handleHandshake()
+	hs, err := c.handleHandshakePacket()
 	if err != nil {
 		return err
 	}
@@ -117,16 +142,16 @@ func (c *conn) dial() error {
 		return err
 	}
 
-	plugin := handshake.AuthPlugin
-	authData := handshake.GetAuthData()
-
-	if err := c.writeHandshakeResponsePacket(plugin, authData); err != nil {
+	method := hs.AuthPlugin
+	authData := hs.GetAuthData()
+	if err := c.writeHandshakeResponsePacket(method, authData); err != nil {
 		return err
 	}
-	return c.auth(plugin, authData)
+
+	return c.auth(method, authData)
 }
 
-func (c *conn) handleHandshake() (*packet.Handshake, error) {
+func (c *conn) handleHandshakePacket() (*packet.Handshake, error) {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return nil, err
@@ -134,11 +159,20 @@ func (c *conn) handleHandshake() (*packet.Handshake, error) {
 	if packet.IsErr(data) {
 		return nil, c.handleOKERRPacket(data)
 	}
-	return packet.ParseHandshake(data)
+
+	pkt, err := packet.ParseHandshake(data)
+	if err != nil {
+		return nil, err
+	}
+
+	if pkt.GetCapabilities()&flag.ClientSSL != 0 && c.useSSL {
+		c.mysqlConn.SetCapabilities(c.Capabilities() | flag.ClientSSL)
+	}
+	return pkt, nil
 }
 
-func (c *conn) writeHandshakeResponsePacket(plugin auth.Method, authData []byte) error {
-	passwordEncrypted, err := auth.EncryptPassword(plugin, []byte(c.password), authData)
+func (c *conn) writeHandshakeResponsePacket(method auth.Method, authData []byte) error {
+	authRes, err := c.generateAuthRes(method, authData)
 	if err != nil {
 		return err
 	}
@@ -148,8 +182,8 @@ func (c *conn) writeHandshakeResponsePacket(plugin auth.Method, authData []byte)
 		MaxPacketSize:         maxPacketSize,
 		CharacterSet:          c.collation,
 		Username:              []byte(c.user),
-		AuthRes:               passwordEncrypted,
-		AuthPlugin:            plugin,
+		AuthRes:               authRes,
+		AuthPlugin:            method,
 	}
 
 	if len(c.attrs) > 0 {
@@ -174,10 +208,6 @@ func (c *conn) defaultCapabilities() flag.Capability {
 		flag.ClientMultiResults
 }
 
-func (c *conn) ReadPacket() ([]byte, error) {
-	return c.mysqlConn.ReadPacket()
-}
-
 func (c *conn) readUntilEOFPacket() error {
 	for {
 		data, err := c.ReadPacket()
@@ -188,7 +218,6 @@ func (c *conn) readUntilEOFPacket() error {
 		switch {
 		case packet.IsErr(data):
 			return c.handleOKERRPacket(data)
-
 		case packet.IsEOF(data):
 			eofPkt, err := packet.ParseEOF(data, c.mysqlConn.Capabilities())
 			if err != nil {
@@ -198,14 +227,6 @@ func (c *conn) readUntilEOFPacket() error {
 			return nil
 		}
 	}
-}
-
-func (c *conn) WritePacket(pkt packet.Packet) error {
-	return c.mysqlConn.WritePacket(pkt)
-}
-
-func (c *conn) WriteCommandPacket(pkt packet.Packet) error {
-	return c.mysqlConn.WriteCommandPacket(pkt)
 }
 
 func (c *conn) handleOKERRPacket(data []byte) error {
@@ -239,18 +260,6 @@ func (c *conn) readOKERRPacket() error {
 		return err
 	}
 	return c.handleOKERRPacket(data)
-}
-
-func (c *conn) Capabilities() flag.Capability {
-	return c.mysqlConn.Capabilities()
-}
-
-func (c *conn) AffectedRows() uint64 {
-	return c.affectedRows
-}
-
-func (c *conn) LastInsertId() uint64 {
-	return c.lastInsertId
 }
 
 func WithHost(host string) Option {

@@ -14,15 +14,12 @@ type ERR struct {
 
 	ERRHeader      uint8
 	ErrorCode      code.Err
-	SqlStateMarker byte
+	SqlStateMarker byte // 0x23
 	SqlState       string
 	ErrorMessage   string
 }
 
 func NewERR(err error) *ERR {
-	fmt.Println(myerrors.Code(err))
-	fmt.Println(myerrors.SQLState(err))
-	fmt.Println(myerrors.Message(err))
 	return &ERR{
 		ERRHeader:      0xff,
 		ErrorCode:      myerrors.Code(err),

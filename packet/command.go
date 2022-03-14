@@ -117,7 +117,7 @@ func (c Command) String() string {
 	}
 }
 
-func New(cmd Command, data []byte) *Simple {
+func NewCmd(cmd Command, data []byte) *Simple {
 	data = append([]byte{byte(cmd)}, data...)
 	return NewSimple(data)
 }

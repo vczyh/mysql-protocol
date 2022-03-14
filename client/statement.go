@@ -7,39 +7,38 @@ import (
 	"github.com/vczyh/mysql-protocol/packet"
 )
 
-func (c *conn) Exec(query string) (*mysql.Result, error) {
-	pkt := packet.New(packet.ComQuery, []byte(query))
-	if err := c.WriteCommandPacket(pkt); err != nil {
-		return nil, err
+func (c *conn) Exec(query string) (rs mysql.Result, err error) {
+	if err := c.WriteCommandPacket(packet.NewCmd(packet.ComQuery, []byte(query))); err != nil {
+		return rs, err
 	}
 
 	columnCount, err := c.readExecuteResponseFirstPacket()
 	if err != nil {
-		return nil, err
+		return rs, err
 	}
 
 	if columnCount > 0 {
 		// columnCount * ColumnDefinition packet
 		if err := c.readUntilEOFPacket(); err != nil {
-			return nil, err
+			return rs, err
 		}
-
-		// columnCount * ResultSetRow packet
+		// n * ResultSetRow packet
 		if err := c.readUntilEOFPacket(); err != nil {
-			return nil, err
+			return rs, err
 		}
 	}
 
 	if err := c.getResult(); err != nil {
-		return nil, err
+		return rs, err
 	}
 
-	return mysql.NewResult(c.affectedRows, c.lastInsertId), nil
+	rs.AffectedRows = c.affectedRows
+	rs.LastInsertId = c.lastInsertId
+	return rs, nil
 }
 
-func (c *conn) Query(query string) (Rows, error) {
-	pkt := packet.New(packet.ComQuery, []byte(query))
-	if err := c.WriteCommandPacket(pkt); err != nil {
+func (c *conn) Query(query string) (*Rows, error) {
+	if err := c.WriteCommandPacket(packet.NewCmd(packet.ComQuery, []byte(query))); err != nil {
 		return nil, err
 	}
 
@@ -48,15 +47,14 @@ func (c *conn) Query(query string) (Rows, error) {
 		return nil, err
 	}
 
-	rows := new(rows)
+	rows := new(Rows)
 	rows.conn = c
 
 	if columnCount > 0 {
-		rows.columns, err = c.readColumns(columnCount)
+		rows.columnDefs, rows.columns, err = c.readColumns(columnCount)
 	} else {
 		rows.done = true
 	}
-
 	return rows, err
 }
 
@@ -69,11 +67,9 @@ func (c *conn) readExecuteResponseFirstPacket() (int, error) {
 	switch {
 	case packet.IsOK(data) || packet.IsErr(data):
 		return 0, c.handleOKERRPacket(data)
-
 	case packet.IsLocalInfileRequest(data):
 		// TODO
 		return 0, fmt.Errorf("unsupported LOCAL INFILE Request")
-
 	default:
 		columnCount, err := packet.ParseColumnCount(data)
 		if err != nil {
@@ -103,25 +99,36 @@ func (c *conn) getResult() error {
 	return nil
 }
 
-func (c *conn) readColumns(count int) ([]packet.Column, error) {
-	var columns []packet.Column
+func (c *conn) readColumns(count int) ([]*packet.ColumnDefinition, []mysql.Column, error) {
+	columnDefs := make([]*packet.ColumnDefinition, count)
+	columns := make([]mysql.Column, count)
+
 	for i := 0; i < count; i++ {
 		data, err := c.ReadPacket()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-
 		columnDefPkt, err := packet.ParseColumnDefinition(data)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		columns = append(columns, columnDefPkt)
+
+		columnDefs[i] = columnDefPkt
+		columns[i] = mysql.Column{
+			Database: columnDefPkt.Schema,
+			Table:    columnDefPkt.Table,
+			Name:     columnDefPkt.Name,
+			CharSet:  columnDefPkt.CharacterSet,
+			Length:   columnDefPkt.ColumnLength,
+			Type:     columnDefPkt.ColumnType,
+			Flags:    columnDefPkt.Flags,
+			Decimals: columnDefPkt.Decimals,
+		}
 	}
 
 	// TODO EOF deprecated
 	if _, err := c.mysqlConn.ReadPacket(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-
-	return columns, nil
+	return columnDefs, columns, nil
 }

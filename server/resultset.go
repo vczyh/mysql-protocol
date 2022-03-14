@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"github.com/vczyh/mysql-protocol/charset"
 	"github.com/vczyh/mysql-protocol/flag"
@@ -9,75 +10,86 @@ import (
 	"time"
 )
 
-type ResultSet interface {
-	Columns() []packet.Column
-	Rows() []packet.Row
-	WriteText(mysql.Conn) error
+var (
+	ErrColumnRowMismatch = errors.New("column num and row value num do not match")
+)
+
+//type ResultSet interface {
+//	Columns() []packet.Column
+//	Rows() []packet.Row
+//	WriteText(mysql.Conn) error
+//}
+
+type ResultSet struct {
+	columns []mysql.Column
+	rows    []mysql.Row
 }
 
-type resultSet struct {
-	columns []packet.Column
-	rows    []packet.Row
-}
-
-func NewSimpleResultSet(columnNames []string, rowValues [][]interface{}) (ResultSet, error) {
-	rs := new(resultSet)
-
-	// column definition
-	columns := make([]*packet.ColumnDefinition, len(columnNames))
-	for i, name := range columnNames {
-		columns[i] = &packet.ColumnDefinition{Name: name}
+func NewResultSet(columns []mysql.Column, rows []mysql.Row) (*ResultSet, error) {
+	for _, row := range rows {
+		if len(row) != len(columns) {
+			return nil, ErrColumnRowMismatch
+		}
 	}
+	rs := new(ResultSet)
+	rs.columns = columns
+	rs.rows = rows
+	return rs, nil
+}
+
+func NewSimpleResultSet(columnNames []string, rowValues [][]interface{}) (*ResultSet, error) {
+	columns := make([]mysql.Column, len(columnNames))
+	for i, name := range columnNames {
+		columns[i] = mysql.Column{Name: name}
+	}
+
 	for _, rowValue := range rowValues {
 		if len(columnNames) != len(rowValue) {
-			return nil, fmt.Errorf("column num and row value num do not match")
+			return nil, ErrColumnRowMismatch
 		}
-
 		for i, val := range rowValue {
-			column := columns[i]
-			bef := column.ColumnType
+			column := &columns[i]
+			bef := column.Type
 			if err := fillColumnDefinition(val, column); err != nil {
 				return nil, err
 			}
-			now := column.ColumnType
 
+			now := column.Type
 			if i > 0 && now != bef {
 				if now == packet.MySQLTypeNull {
-					columns[i].ColumnType = bef
+					column.Type = bef
 				} else if bef != packet.MySQLTypeNull && now != packet.MySQLTypeNull {
 					return nil, fmt.Errorf("row value for same column type differ")
 				}
 			}
 		}
 	}
-	rs.columns = make([]packet.Column, len(columns))
-	for i, column := range columns {
-		rs.columns[i] = column
-	}
 
-	// row value
-	for _, rowValue := range rowValues {
-		row := make(packet.Row, len(columnNames))
-		for i, val := range rowValue {
-			row[i] = packet.NewColumnValue(val == nil, val, columns[i].ColumnType)
+	rows := make([]mysql.Row, len(rowValues))
+	for i, rowValue := range rowValues {
+		row := make(mysql.Row, len(columnNames))
+		for j, val := range rowValue {
+			row[j] = mysql.NewColumnValue(val)
 		}
-		rs.rows = append(rs.rows, row)
+		rows[i] = row
 	}
 
-	return rs, nil
+	return NewResultSet(columns, rows)
 }
 
-func (rs *resultSet) Columns() []packet.Column {
+func (rs *ResultSet) Columns() []mysql.Column {
 	return rs.columns
 }
 
-func (rs *resultSet) Rows() []packet.Row {
+func (rs *ResultSet) Rows() []mysql.Row {
 	return rs.rows
 }
 
-func (rs *resultSet) WriteText(conn mysql.Conn) error {
+func (rs *ResultSet) WriteText(conn mysql.Conn) error {
+	columnDefs := rs.columnDefinitionPackets()
+
 	// column count packet
-	columnCountPkt, err := packet.NewColumnCount(len(rs.columns))
+	columnCountPkt, err := packet.NewColumnCount(len(columnDefs))
 	if err != nil {
 		return err
 	}
@@ -86,7 +98,7 @@ func (rs *resultSet) WriteText(conn mysql.Conn) error {
 	}
 
 	// columnCount * ColumnDefinition packet
-	for _, column := range rs.columns {
+	for _, column := range columnDefs {
 		if err := conn.WritePacket(column); err != nil {
 			return err
 		}
@@ -98,9 +110,9 @@ func (rs *resultSet) WriteText(conn mysql.Conn) error {
 		return err
 	}
 
-	// columnCount * ResultSetRow packet
-	for _, row := range rs.rows {
-		if err := conn.WritePacket(packet.NewTextResultSetRow(row)); err != nil {
+	// columnCount * TextResultSetRow packet
+	for _, row := range rs.textRowPackets() {
+		if err := conn.WritePacket(row); err != nil {
 			return err
 		}
 	}
@@ -114,25 +126,58 @@ func (rs *resultSet) WriteText(conn mysql.Conn) error {
 	return nil
 }
 
-func fillColumnDefinition(val interface{}, cd *packet.ColumnDefinition) error {
-	cd.CharacterSet = charset.Utf8mb40900AiCi
+func (rs *ResultSet) columnDefinitionPackets() []*packet.ColumnDefinition {
+	columnDefs := make([]*packet.ColumnDefinition, len(rs.columns))
+	for i, c := range rs.columns {
+		columnDefs[i] = &packet.ColumnDefinition{
+			Schema:       c.Database,
+			Table:        c.Table,
+			OrgTable:     c.OrgTable,
+			Name:         c.Name,
+			OrgName:      c.OrgName,
+			CharacterSet: c.CharSet,
+			ColumnLength: c.Length,
+			ColumnType:   c.Type,
+			Flags:        c.Flags,
+			Decimals:     c.Decimals,
+		}
+	}
+	return columnDefs
+}
+
+func (rs *ResultSet) textRowPackets() []*packet.TextResultSetRow {
+	textRows := make([]*packet.TextResultSetRow, len(rs.rows))
+	for i, row := range rs.rows {
+		dRow := make([]packet.ColumnValue, len(row))
+		for j, cv := range row {
+			dRow[j] = packet.ColumnValue{Value: cv.Value()}
+		}
+		textRows[i] = &packet.TextResultSetRow{
+			Row: dRow,
+		}
+	}
+	return textRows
+}
+
+func fillColumnDefinition(val interface{}, column *mysql.Column) error {
+	column.CharSet = charset.Utf8mb40900AiCi
 
 	switch val.(type) {
 	case int, int8, int16, int32, int64:
-		cd.ColumnType = packet.MySQLTypeLongLong
-		cd.Flags |= flag.BinaryFlag
+		column.Type = packet.MySQLTypeLongLong
+		column.Flags |= flag.BinaryFlag
 	case uint, uint8, uint16, uint32, uint64:
-		cd.ColumnType = packet.MySQLTypeLongLong
-		cd.Flags |= flag.UnsignedFlag | flag.BinaryFlag
+		column.Type = packet.MySQLTypeLongLong
+		column.Flags |= flag.UnsignedFlag | flag.BinaryFlag
 	case float32, float64:
-		cd.ColumnType = packet.MySQLTypeDouble
-		cd.Flags |= flag.BinaryFlag
+		column.Type = packet.MySQLTypeDouble
+		column.Flags |= flag.BinaryFlag
 	case string, []byte:
-		cd.ColumnType = packet.MySQLTypeVarString
+		column.Type = packet.MySQLTypeVarString
 	case nil:
-		cd.ColumnType = packet.MySQLTypeNull
+		column.Type = packet.MySQLTypeNull
 	case time.Time:
-		cd.ColumnType = packet.MySQLTypeDatetime
+		column.Type = packet.MySQLTypeDatetime
 	default:
 		return fmt.Errorf("unsupported column value type %T", val)
 	}

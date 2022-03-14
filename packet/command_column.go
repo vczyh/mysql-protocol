@@ -114,29 +114,6 @@ func (t TableColumnType) String() string {
 	}
 }
 
-type Column interface {
-	Packet
-	GetDatabase() string
-	GetTable() string
-	GetName() string
-	GetCharSet() *charset.Collation
-	GetLength() uint32
-	GetType() TableColumnType
-	GetFlags() flag.ColumnDefinition
-	GetDecimals() byte
-	String() string
-}
-
-type Value interface{}
-
-type ColumnValue interface {
-	IsNull() bool
-	Value() Value
-	DumpText() ([]byte, error)
-	DumpBinary() ([]byte, error)
-	String() string
-}
-
 // ColumnDefinition https://dev.mysql.com/doc/internals/en/com-query-response.html#column-definition
 type ColumnDefinition struct {
 	Header
@@ -157,7 +134,7 @@ type ColumnDefinition struct {
 	// TODO command was COM_FIELD_LIST
 }
 
-func ParseColumnDefinition(bs []byte) (Column, error) {
+func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
 	var p ColumnDefinition
 	var err error
 
@@ -259,77 +236,23 @@ func (p *ColumnDefinition) Dump(capabilities flag.Capability) ([]byte, error) {
 	return dump, nil
 }
 
-func (p *ColumnDefinition) GetDatabase() string {
-	return p.Schema
+type ColumnValue struct {
+	Value interface{}
 }
 
-func (p *ColumnDefinition) GetTable() string {
-	return p.Table
-}
-
-func (p *ColumnDefinition) GetName() string {
-	return p.Name
-}
-
-func (p *ColumnDefinition) GetCharSet() *charset.Collation {
-	return p.CharacterSet
-}
-
-func (p *ColumnDefinition) GetLength() uint32 {
-	return p.ColumnLength
-}
-
-func (p *ColumnDefinition) GetType() TableColumnType {
-	return p.ColumnType
-}
-
-func (p *ColumnDefinition) GetFlags() flag.ColumnDefinition {
-	return p.Flags
-}
-
-func (p *ColumnDefinition) GetDecimals() byte {
-	return p.Decimals
-}
-
-func (p *ColumnDefinition) String() string {
-	return fmt.Sprintf("%s / %s", p.Name, p.ColumnType)
-}
-
-type columnValue struct {
-	isNull    bool
-	value     Value
-	mysqlType TableColumnType
-}
-
-func NewColumnValue(isNull bool, val interface{}, mysqlType TableColumnType) ColumnValue {
-	return &columnValue{
-		isNull:    isNull,
-		value:     val,
-		mysqlType: mysqlType,
-	}
-}
-
-func (cv *columnValue) IsNull() bool {
-	return cv.isNull
-}
-
-func (cv *columnValue) Value() Value {
-	return cv.value
-}
-
-func (cv *columnValue) DumpText() ([]byte, error) {
-	if cv.isNull {
+func (cv *ColumnValue) DumpText() ([]byte, error) {
+	if cv.Value == nil {
 		return []byte{0xfb}, nil
 	}
 
-	switch value := cv.value.(type) {
+	switch value := cv.Value.(type) {
 	case time.Time:
 		timeStr := value.Format("2006-01-02 15:04:05.000000")
 		return LengthEncodedString.Dump([]byte(timeStr)), nil
 	}
 
 	var val string
-	rv := reflect.ValueOf(cv.value)
+	rv := reflect.ValueOf(cv.Value)
 	switch rv.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		val = strconv.FormatInt(rv.Int(), 10)
@@ -342,40 +265,19 @@ func (cv *columnValue) DumpText() ([]byte, error) {
 	case reflect.Slice:
 		ek := rv.Type().Elem().Kind()
 		if ek != reflect.Uint8 {
-			return nil, fmt.Errorf("unsupported type %T, a slice of %s", cv.value, ek)
+			return nil, fmt.Errorf("unsupported type %T, a slice of %s", cv.Value, ek)
 		}
 		val = string(rv.Bytes())
 	case reflect.String:
 		val = rv.String()
 	default:
-		return nil, fmt.Errorf("unsupported type %T", cv.value)
+		return nil, fmt.Errorf("unsupported type %T", cv.Value)
 	}
 
 	return LengthEncodedString.Dump([]byte(val)), nil
 }
 
-func (cv *columnValue) DumpBinary() ([]byte, error) {
+func (cv *ColumnValue) DumpBinary() ([]byte, error) {
 	// TODO implement
 	return nil, nil
-}
-
-func (cv *columnValue) String() string {
-	if cv.isNull {
-		return "NULL"
-	}
-
-	switch v := cv.value.(type) {
-	case int8, int16, int32, uint64:
-		return strconv.FormatInt(v.(int64), 10)
-	case uint8, uint16, uint32, int64:
-		return strconv.FormatUint(v.(uint64), 10)
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	case time.Time:
-		return v.Format("2006-01-02 15:04:05.000000")
-	case []byte:
-		return string(v)
-	default:
-		return "Unsupported column type"
-	}
 }

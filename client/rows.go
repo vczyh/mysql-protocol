@@ -2,39 +2,25 @@ package client
 
 import (
 	"github.com/vczyh/mysql-protocol/flag"
+	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/packet"
 	"io"
 )
 
-type Rows interface {
-	Columns() []packet.Column
-
-	Next() (packet.Row, error)
-
-	// HasNextResultSet is called at the end of the current result set and
-	// reports whether there is another result set after the current one.
-	HasNextResultSet() bool
-
-	// NextResultSet advances the driver to the next result set even
-	// if there are remaining rows in the current result set.
-	//
-	// NextResultSet should return io.EOF when there are no more result sets.
-	NextResultSet() error
-}
-
-type rows struct {
-	conn    *conn
-	columns []packet.Column
+type Rows struct {
+	conn       *conn
+	columnDefs []*packet.ColumnDefinition
+	columns    []mysql.Column
 
 	// current result set packet is read off or not
 	done bool
 }
 
-func (r *rows) Columns() []packet.Column {
+func (r *Rows) Columns() []mysql.Column {
 	return r.columns
 }
 
-func (r *rows) Next() (packet.Row, error) {
+func (r *Rows) Next() (mysql.Row, error) {
 	if r.done {
 		return nil, io.EOF
 	}
@@ -43,25 +29,30 @@ func (r *rows) Next() (packet.Row, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	switch {
 	case packet.IsErr(data):
 		return nil, r.conn.handleOKERRPacket(data)
-
 	case packet.IsEOF(data):
 		r.done = true
 		return nil, io.EOF
-
 	default:
-		return packet.ParseTextResultSetRow(data, r.columns, r.conn.loc)
+		pktRow, err := packet.ParseTextResultSetRow(data, r.columnDefs, r.conn.loc)
+		if err != nil {
+			return nil, err
+		}
+		row := make(mysql.Row, len(pktRow))
+		for i, pktColumnVal := range pktRow {
+			row[i] = mysql.NewColumnValue(pktColumnVal.Value)
+		}
+		return row, nil
 	}
 }
 
-func (r *rows) HasNextResultSet() bool {
+func (r *Rows) HasNextResultSet() bool {
 	return r.conn.status&flag.ServerMoreResultsExists != 0
 }
 
-func (r *rows) NextResultSet() error {
+func (r *Rows) NextResultSet() error {
 	for {
 		if !r.done {
 			if err := r.conn.readUntilEOFPacket(); err != nil {
@@ -80,7 +71,7 @@ func (r *rows) NextResultSet() error {
 		}
 		if columnCount > 0 {
 			r.done = false
-			r.columns, err = r.conn.readColumns(columnCount)
+			r.columnDefs, r.columns, err = r.conn.readColumns(columnCount)
 			return err
 		}
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	ErrUnsupportedAuthenticationMethod = errors.New("auth: unsupported Method")
+	ErrUnsupportedAuthenticationMethod = errors.New("auth: unsupported method")
 	ErrMismatch                        = errors.New("auth: validate mismatch")
 )
 

@@ -56,24 +56,24 @@ func TestExecute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Exec(): %v", err)
 	}
-	t.Log(rs.AffectedRows(), rs.LastInsertId())
+	t.Log(rs.AffectedRows, rs.LastInsertId)
 
 	rs, err = c.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", name))
 	if err != nil {
 		t.Fatalf("Exec(): %v", err)
 	}
-	t.Log(rs.AffectedRows(), rs.LastInsertId())
+	t.Log(rs.AffectedRows, rs.LastInsertId)
 }
 
 func TestQuery(t *testing.T) {
-	//rows, err := c.Query("SELECT @@version_comment")
+	//Rows, err := c.Query("SELECT @@version_comment")
 	rows, err := c.Query("SHOW COLUMNS FROM mysql.user")
 	if err != nil {
 		t.Fatalf("Query(): %v", err)
 	}
 
 	for _, column := range rows.Columns() {
-		t.Log(column)
+		t.Log(column.String())
 	}
 
 	for {
@@ -82,7 +82,7 @@ func TestQuery(t *testing.T) {
 			if err == io.EOF {
 				break
 			}
-			t.Fatalf("rows.Next(): %v", err)
+			t.Fatalf("Rows.Next(): %v", err)
 		}
 		t.Log(row)
 	}

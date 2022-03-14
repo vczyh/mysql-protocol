@@ -1,18 +1,23 @@
 package mysql
 
+import (
+	"github.com/vczyh/mysql-protocol/flag"
+	"github.com/vczyh/mysql-protocol/packet"
+)
+
 type Result struct {
-	affectedRows uint64
-	lastInsertId uint64
+	AffectedRows uint64
+	LastInsertId uint64
+	Status       flag.Status
+	WarningCount int
 }
 
-func NewResult(affectedRows, lastInsertId uint64) *Result {
-	return &Result{affectedRows, lastInsertId}
-}
-
-func (r *Result) AffectedRows() uint64 {
-	return r.affectedRows
-}
-
-func (r *Result) LastInsertId() uint64 {
-	return r.lastInsertId
+func (r *Result) Write(conn Conn) error {
+	return conn.WritePacket(&packet.OK{
+		OKHeader:     0x00,
+		AffectedRows: r.AffectedRows,
+		LastInsertId: r.LastInsertId,
+		StatusFlags:  0,
+		WarningCount: 0,
+	})
 }

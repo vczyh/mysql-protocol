@@ -10,16 +10,11 @@ import (
 )
 
 func (c *conn) handleSSL() error {
-	if !c.useSSL {
+	if !c.useSSL || c.Capabilities()&flag.ClientSSL == 0 {
 		return nil
 	}
 
-	// TODO server support SSL?
-
-	capabilities := c.Capabilities() | flag.ClientSSL
-	c.mysqlConn.SetCapabilities(capabilities)
-
-	if err := c.writeSSLRequestPacket(capabilities); err != nil {
+	if err := c.writeSSLRequestPacket(); err != nil {
 		return err
 	}
 	return c.switchToTLS()
@@ -55,9 +50,9 @@ func (c *conn) switchToTLS() error {
 	return nil
 }
 
-func (c *conn) writeSSLRequestPacket(capabilities flag.Capability) error {
+func (c *conn) writeSSLRequestPacket() error {
 	return c.WritePacket(&packet.SSLRequest{
-		ClientCapabilityFlags: capabilities,
+		ClientCapabilityFlags: c.Capabilities(),
 		MaxPacketSize:         maxPacketSize,
 		CharacterSet:          c.collation,
 	})

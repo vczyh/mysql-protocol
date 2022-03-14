@@ -168,14 +168,18 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 			err = conn.WriteError(err)
 			break
 		}
-		err = rs.WriteText(conn)
+		switch v := rs.(type) {
+		case *mysql.Result:
+			err = v.Write(conn)
+		case *ResultSet:
+			err = v.WriteText(conn)
+		}
 
 	case packet.IsQuit(data):
 		s.closeConnection(conn)
-		s.config.Handler.Quit()
 
 	default:
-		s.config.Handler.Other(data, conn)
+		s.config.Handler.Other(data[4:], conn)
 	}
 
 	return err

@@ -60,7 +60,7 @@ func main() {
 }
 
 type testHandler struct {
-	dh        *server.DefaultHandler
+	dh        server.Handler
 	connIdSet sync.Map
 }
 
@@ -74,7 +74,7 @@ func (h *testHandler) Ping() error {
 	return h.dh.Ping()
 }
 
-func (h *testHandler) Query(query string) (server.ResultSet, error) {
+func (h *testHandler) Query(query string) (interface{}, error) {
 	return h.dh.Query(query)
 }
 
