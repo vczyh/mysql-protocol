@@ -15,7 +15,7 @@ import (
 	"os"
 )
 
-type server struct {
+type Server struct {
 	config    *Config
 	tlsConfig *tls.Config
 
@@ -35,8 +35,8 @@ type server struct {
 	l net.Listener
 }
 
-func NewServer(userProvider UserProvider, handler Handler, opts ...Option) *server {
-	s := new(server)
+func NewServer(userProvider UserProvider, handler Handler, opts ...Option) *Server {
+	s := new(Server)
 	s.config = &Config{
 		UserProvider: userProvider,
 		Handler:      handler,
@@ -49,7 +49,7 @@ func NewServer(userProvider UserProvider, handler Handler, opts ...Option) *serv
 	return s
 }
 
-func (s *server) Start() error {
+func (s *Server) Start() error {
 	if err := s.build(); err != nil {
 		s.config.Logger.Error(err)
 		return err
@@ -78,7 +78,7 @@ func (s *server) Start() error {
 	}
 }
 
-func (s *server) build() error {
+func (s *Server) build() error {
 	if s.config.SHA2Cache == nil {
 		s.config.SHA2Cache = NewDefaultSHA2Cache()
 	}
@@ -118,7 +118,7 @@ func (s *server) build() error {
 	return nil
 }
 
-func (s *server) handleConnection(conn mysql.Conn) {
+func (s *Server) handleConnection(conn mysql.Conn) {
 	defer s.closeConnection(conn)
 
 	if err := s.auth(conn); err != nil {
@@ -147,7 +147,7 @@ func (s *server) handleConnection(conn mysql.Conn) {
 	}
 }
 
-func (s *server) handleCommand(conn mysql.Conn) error {
+func (s *Server) handleCommand(conn mysql.Conn) error {
 	data, err := conn.ReadPacket()
 	if err != nil {
 		return err
@@ -185,7 +185,7 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 	return err
 }
 
-func (s *server) defaultCapabilities() flag.Capability {
+func (s *Server) defaultCapabilities() flag.Capability {
 	capabilities := flag.ClientLongPassword |
 		flag.ClientFoundRows |
 		flag.ClientLongFlag |
@@ -217,7 +217,7 @@ func (s *server) defaultCapabilities() flag.Capability {
 	return capabilities
 }
 
-func (s *server) applyForConnectionId() (uint32, error) {
+func (s *Server) applyForConnectionId() (uint32, error) {
 	bigN, err := rand.Int(rand.Reader, big.NewInt(2<<32))
 	if err != nil {
 		return 0, err
@@ -225,7 +225,7 @@ func (s *server) applyForConnectionId() (uint32, error) {
 	return uint32(bigN.Uint64()), nil
 }
 
-func (s *server) closeConnection(conn mysql.Conn) {
+func (s *Server) closeConnection(conn mysql.Conn) {
 	if conn.Closed() {
 		return
 	}
@@ -234,107 +234,107 @@ func (s *server) closeConnection(conn mysql.Conn) {
 }
 
 func WithPort(port int) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.Port = port
 	})
 }
 
 func WithVersion(version string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.Version = version
 	})
 }
 
 func WithDefaultAuthMethod(method auth.Method) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.DefaultAuthMethod = method
 	})
 }
 
 func WithUserProvider(userProvider UserProvider) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.UserProvider = userProvider
 	})
 }
 
 func WithSHA2Cache(cache SHA2Cache) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.SHA2Cache = cache
 	})
 }
 
 func WithLogger(logger Logger) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.Logger = logger
 	})
 }
 
 func WithUseSSL(useSSL bool) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.UseSSL = useSSL
 	})
 }
 
 func WithCertsDir(certsDir string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.CertsDir = certsDir
 	})
 }
 
 func WithSSLCA(sslCA string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.SSLCA = sslCA
 	})
 }
 
 func WithSSLCert(sslCert string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.SSLCert = sslCert
 	})
 }
 
 func WithSSLKey(sslKey string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.SSLKey = sslKey
 	})
 }
 
 func WithRSAKeysDir(rsaKeysDir string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.RSAKeysDir = rsaKeysDir
 	})
 }
 
 func WithCachingSHA2PasswordPrivateKeyPath(privatePath string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.CachingSHA2PasswordPrivateKeyPath = privatePath
 	})
 }
 
 func WithCachingSHA2PasswordPublicKeyPath(publicPath string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.CachingSHA2PasswordPublicKeyPath = publicPath
 	})
 }
 
 func WithSHA256PasswordPrivateKeyPath(privatePath string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.SHA256PasswordPrivateKeyPath = privatePath
 	})
 }
 
 func WithSHA256PasswordPublicKeyPath(publicPath string) Option {
-	return optionFun(func(s *server) {
+	return optionFun(func(s *Server) {
 		s.config.SHA256PasswordPublicKeyPath = publicPath
 	})
 }
 
 type Option interface {
-	apply(*server)
+	apply(*Server)
 }
 
-type optionFun func(*server)
+type optionFun func(*Server)
 
-func (f optionFun) apply(s *server) {
+func (f optionFun) apply(s *Server) {
 	f(s)
 }

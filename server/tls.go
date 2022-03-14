@@ -28,7 +28,7 @@ var (
 	ServerKeyName  = "server-key.pem"
 )
 
-func (s *server) handleTLSPacket(data []byte, conn mysql.Conn) error {
+func (s *Server) handleTLSPacket(data []byte, conn mysql.Conn) error {
 	pkt, err := packet.ParseSSLRequest(data)
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func (s *server) handleTLSPacket(data []byte, conn mysql.Conn) error {
 	return nil
 }
 
-func (s *server) buildTLSConfig() (err error) {
+func (s *Server) buildTLSConfig() (err error) {
 	if !s.config.UseSSL {
 		return nil
 	}
@@ -97,7 +97,7 @@ func (s *server) buildTLSConfig() (err error) {
 	return nil
 }
 
-func (s *server) generateReadCerts() error {
+func (s *Server) generateReadCerts() error {
 	isExist, err := s.isCertsExist()
 	if err != nil {
 		return err
@@ -149,7 +149,7 @@ func (s *server) generateReadCerts() error {
 	return nil
 }
 
-func (s *server) isCertsExist() (bool, error) {
+func (s *Server) isCertsExist() (bool, error) {
 	dir := s.config.CertsDir
 	if dir == "" {
 		return false, nil
@@ -202,7 +202,7 @@ func (s *server) isCertsExist() (bool, error) {
 	return false, nil
 }
 
-func (s *server) readCerts() (err error) {
+func (s *Server) readCerts() (err error) {
 	dir := s.config.CertsDir
 
 	caCertPath := path.Join(dir, CACertName)

@@ -31,7 +31,7 @@ const (
 	PublicKeyName  = "public_key.pem"
 )
 
-func (s *server) auth(conn mysql.Conn) error {
+func (s *Server) auth(conn mysql.Conn) error {
 	hs, err := s.writeHandshakePacket(conn)
 	if err != nil {
 		return err
@@ -104,12 +104,12 @@ func (s *server) auth(conn mysql.Conn) error {
 	return nil
 }
 
-func (s *server) writeAuthSwitchRequestPacket(conn mysql.Conn, method auth.Method) ([]byte, error) {
+func (s *Server) writeAuthSwitchRequestPacket(conn mysql.Conn, method auth.Method) ([]byte, error) {
 	authData := auth.Bytes(20)
 	return authData, conn.WritePacket(packet.NewAuthSwitchRequest(method, append(authData, 0x00)))
 }
 
-func (s *server) handleAuthSwitchResponsePacket(conn mysql.Conn) ([]byte, error) {
+func (s *Server) handleAuthSwitchResponsePacket(conn mysql.Conn) ([]byte, error) {
 	data, err := conn.ReadPacket()
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func (s *server) handleAuthSwitchResponsePacket(conn mysql.Conn) ([]byte, error)
 	return packet.ParseAuthSwitchResponse(data)
 }
 
-func (s *server) authentication(conn mysql.Conn, method auth.Method, key string,
+func (s *Server) authentication(conn mysql.Conn, method auth.Method, key string,
 	authRes, salt []byte, errAccessDenied error) error {
 
 	switch method {
@@ -216,14 +216,14 @@ func (s *server) authentication(conn mysql.Conn, method auth.Method, key string,
 	return nil
 }
 
-func (s *server) writePublicKeyPacket(conn mysql.Conn, publicKeyBytes []byte) error {
+func (s *Server) writePublicKeyPacket(conn mysql.Conn, publicKeyBytes []byte) error {
 	if len(publicKeyBytes) == 0 {
 		return myerrors.NewServer(code.ErrSendToClient, "public key not setting")
 	}
 	return conn.WritePacket(packet.NewAuthMoreData(publicKeyBytes))
 }
 
-func (s *server) sha256Password(conn mysql.Conn, authRes, salt []byte) ([]byte, error) {
+func (s *Server) sha256Password(conn mysql.Conn, authRes, salt []byte) ([]byte, error) {
 	if conn.TLSed() {
 		if len(authRes) == 0 {
 			return nil, nil
@@ -241,7 +241,7 @@ func (s *server) sha256Password(conn mysql.Conn, authRes, salt []byte) ([]byte, 
 	return s.plaintextPassword(conn, s.sha256PasswordPrivateKey, salt)
 }
 
-func (s *server) cachingSHA2Password(conn mysql.Conn, salt []byte) ([]byte, error) {
+func (s *Server) cachingSHA2Password(conn mysql.Conn, salt []byte) ([]byte, error) {
 	data, err := conn.ReadPacket()
 	if err != nil {
 		return nil, err
@@ -266,7 +266,7 @@ func (s *server) cachingSHA2Password(conn mysql.Conn, salt []byte) ([]byte, erro
 	}
 }
 
-func (s *server) plaintextPassword(conn mysql.Conn, privateKey *rsa.PrivateKey, salt []byte) ([]byte, error) {
+func (s *Server) plaintextPassword(conn mysql.Conn, privateKey *rsa.PrivateKey, salt []byte) ([]byte, error) {
 	data, err := conn.ReadPacket()
 	if err != nil {
 		return nil, err
@@ -291,7 +291,7 @@ func (s *server) plaintextPassword(conn mysql.Conn, privateKey *rsa.PrivateKey, 
 	return plain[:len(plain)-1], nil
 }
 
-func (s *server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error) {
+func (s *Server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error) {
 	salt1 := auth.Bytes(8)
 
 	hs := &packet.Handshake{
@@ -318,7 +318,7 @@ func (s *server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error
 	return hs, conn.WritePacket(hs)
 }
 
-func (s *server) handleTLSAndHandshakeResponsePacket(conn mysql.Conn) (*packet.HandshakeResponse, error) {
+func (s *Server) handleTLSAndHandshakeResponsePacket(conn mysql.Conn) (*packet.HandshakeResponse, error) {
 	data, err := conn.ReadPacket()
 	if err != nil {
 		return nil, err
@@ -345,7 +345,7 @@ func (s *server) handleTLSAndHandshakeResponsePacket(conn mysql.Conn) (*packet.H
 	return hs, nil
 }
 
-func (s *server) readSHA256PasswordKeyPair() (err error) {
+func (s *Server) readSHA256PasswordKeyPair() (err error) {
 	privateKeyPath := s.config.SHA256PasswordPrivateKeyPath
 	publicKeyPath := s.config.SHA256PasswordPublicKeyPath
 
@@ -361,7 +361,7 @@ func (s *server) readSHA256PasswordKeyPair() (err error) {
 	return err
 }
 
-func (s *server) readCachingSHA2PasswordKeyPair() (err error) {
+func (s *Server) readCachingSHA2PasswordKeyPair() (err error) {
 	privateKeyPath := s.config.CachingSHA2PasswordPrivateKeyPath
 	publicKeyPath := s.config.CachingSHA2PasswordPublicKeyPath
 
@@ -377,7 +377,7 @@ func (s *server) readCachingSHA2PasswordKeyPair() (err error) {
 	return err
 }
 
-func (s *server) generateReadKeyPair() (err error) {
+func (s *Server) generateReadKeyPair() (err error) {
 	dir := s.config.RSAKeysDir
 	privateKeyPath := path.Join(dir, PrivateKeyName)
 	publicKeyPath := path.Join(dir, PublicKeyName)
@@ -415,7 +415,7 @@ func (s *server) generateReadKeyPair() (err error) {
 	return writeKeyPair(s.privateKey, privateKeyPath, publicKeyPath)
 }
 
-func (s *server) isRSAKeysExist() (bool, error) {
+func (s *Server) isRSAKeysExist() (bool, error) {
 	dir := s.config.RSAKeysDir
 	if dir == "" {
 		return false, nil
