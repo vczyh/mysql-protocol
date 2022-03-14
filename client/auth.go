@@ -11,7 +11,7 @@ import (
 	"github.com/vczyh/mysql-protocol/packet"
 )
 
-func (c *conn) auth(method auth.Method, authData []byte) error {
+func (c *Conn) auth(method auth.Method, authData []byte) error {
 	data, err := c.ReadPacket()
 	if err != nil {
 		return err
@@ -23,7 +23,7 @@ func (c *conn) auth(method auth.Method, authData []byte) error {
 	return c.finalAuth(method, data, authData)
 }
 
-func (c *conn) handleAuthSwitchRequestPacket(data []byte) error {
+func (c *Conn) handleAuthSwitchRequestPacket(data []byte) error {
 	switchPkt, err := packet.ParseAuthSwitchRequest(data)
 	if err != nil {
 		return err
@@ -42,7 +42,7 @@ func (c *conn) handleAuthSwitchRequestPacket(data []byte) error {
 	return c.finalAuth(method, data, authData)
 }
 
-func (c *conn) finalAuth(method auth.Method, data, authData []byte) error {
+func (c *Conn) finalAuth(method auth.Method, data, authData []byte) error {
 	switch method {
 	case auth.MySQLNativePassword:
 		return c.handleOKERRPacket(data)
@@ -55,7 +55,7 @@ func (c *conn) finalAuth(method auth.Method, data, authData []byte) error {
 	}
 }
 
-func (c *conn) writeAuthSwitchResponsePacket(method auth.Method, authData []byte) (err error) {
+func (c *Conn) writeAuthSwitchResponsePacket(method auth.Method, authData []byte) (err error) {
 	authRes, err := c.generateAuthRes(method, authData)
 	if err != nil {
 		return err
@@ -63,7 +63,7 @@ func (c *conn) writeAuthSwitchResponsePacket(method auth.Method, authData []byte
 	return c.WritePacket(packet.NewAuthSwitchResponse(authRes))
 }
 
-func (c *conn) generateAuthRes(method auth.Method, authData []byte) (authRes []byte, err error) {
+func (c *Conn) generateAuthRes(method auth.Method, authData []byte) (authRes []byte, err error) {
 	switch method {
 	case auth.MySQLNativePassword, auth.CachingSha2Password:
 		if c.password == "" {
@@ -86,7 +86,7 @@ func (c *conn) generateAuthRes(method auth.Method, authData []byte) (authRes []b
 	}
 }
 
-func (c *conn) sha256Authentication(data, authData []byte) error {
+func (c *Conn) sha256Authentication(data, authData []byte) error {
 	pluginData, err := packet.ParseAuthMoreData(data)
 	if err != nil {
 		return err
@@ -97,7 +97,7 @@ func (c *conn) sha256Authentication(data, authData []byte) error {
 	return c.readOKERRPacket()
 }
 
-func (c *conn) cachingSHA2Authentication(data, authData []byte) error {
+func (c *Conn) cachingSHA2Authentication(data, authData []byte) error {
 	switch {
 	case packet.IsOK(data) || packet.IsErr(data):
 		return c.handleOKERRPacket(data)
@@ -131,7 +131,7 @@ func (c *conn) cachingSHA2Authentication(data, authData []byte) error {
 	return packet.ErrPacketData
 }
 
-func (c *conn) requestPublicKey() ([]byte, error) {
+func (c *Conn) requestPublicKey() ([]byte, error) {
 	simplePkt := packet.NewSimple([]byte{0x02})
 	if err := c.WritePacket(simplePkt); err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (c *conn) requestPublicKey() ([]byte, error) {
 	return pluginData, nil
 }
 
-func (c *conn) writePasswordEncryptedWithPublicKeyPacket(pubBytes []byte, seed []byte) error {
+func (c *Conn) writePasswordEncryptedWithPublicKeyPacket(pubBytes []byte, seed []byte) error {
 	block, rest := pem.Decode(pubBytes)
 	if block == nil {
 		return fmt.Errorf("no pem data found, data: %s", rest)

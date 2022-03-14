@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-func (c *conn) handleSSL() error {
+func (c *Conn) handleSSL() error {
 	if !c.useSSL || c.Capabilities()&flag.ClientSSL == 0 {
 		return nil
 	}
@@ -20,7 +20,7 @@ func (c *conn) handleSSL() error {
 	return c.switchToTLS()
 }
 
-func (c *conn) switchToTLS() error {
+func (c *Conn) switchToTLS() error {
 	cert, err := tls.LoadX509KeyPair(c.sslCert, c.sslKey)
 	if err != nil {
 		return fmt.Errorf("load key pair failed: %v", err)
@@ -50,7 +50,7 @@ func (c *conn) switchToTLS() error {
 	return nil
 }
 
-func (c *conn) writeSSLRequestPacket() error {
+func (c *Conn) writeSSLRequestPacket() error {
 	return c.WritePacket(&packet.SSLRequest{
 		ClientCapabilityFlags: c.Capabilities(),
 		MaxPacketSize:         maxPacketSize,

@@ -7,7 +7,7 @@ import (
 	"github.com/vczyh/mysql-protocol/packet"
 )
 
-func (c *conn) Exec(query string) (rs mysql.Result, err error) {
+func (c *Conn) Exec(query string) (rs mysql.Result, err error) {
 	if err := c.WriteCommandPacket(packet.NewCmd(packet.ComQuery, []byte(query))); err != nil {
 		return rs, err
 	}
@@ -37,7 +37,7 @@ func (c *conn) Exec(query string) (rs mysql.Result, err error) {
 	return rs, nil
 }
 
-func (c *conn) Query(query string) (*Rows, error) {
+func (c *Conn) Query(query string) (*Rows, error) {
 	if err := c.WriteCommandPacket(packet.NewCmd(packet.ComQuery, []byte(query))); err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (c *conn) Query(query string) (*Rows, error) {
 	return rows, err
 }
 
-func (c *conn) readExecuteResponseFirstPacket() (int, error) {
+func (c *Conn) readExecuteResponseFirstPacket() (int, error) {
 	data, err := c.mysqlConn.ReadPacket()
 	if err != nil {
 		return 0, err
@@ -79,7 +79,7 @@ func (c *conn) readExecuteResponseFirstPacket() (int, error) {
 	}
 }
 
-func (c *conn) getResult() error {
+func (c *Conn) getResult() error {
 	for c.status&flag.ServerMoreResultsExists != 0 {
 		columnCount, err := c.readExecuteResponseFirstPacket()
 		if err != nil {
@@ -99,7 +99,7 @@ func (c *conn) getResult() error {
 	return nil
 }
 
-func (c *conn) readColumns(count int) ([]*packet.ColumnDefinition, []mysql.Column, error) {
+func (c *Conn) readColumns(count int) ([]*packet.ColumnDefinition, []mysql.Column, error) {
 	columnDefs := make([]*packet.ColumnDefinition, count)
 	columns := make([]mysql.Column, count)
 

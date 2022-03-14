@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-var c Conn
+var c *Conn
 
 func TestMain(m *testing.M) {
 	var err error

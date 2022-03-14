@@ -8,7 +8,7 @@ import (
 )
 
 type Rows struct {
-	conn       *conn
+	conn       *Conn
 	columnDefs []*packet.ColumnDefinition
 	columns    []mysql.Column
 
