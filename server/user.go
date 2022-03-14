@@ -15,8 +15,6 @@ var (
 
 // UserProvider performs Authentication and Authorization.
 // Implement should keep concurrent safely.
-// All errors returned by methods of UserProvider are not sent to client,
-// unless error is mysqlerror.Error type.
 type UserProvider interface {
 	// Key return unique key that represents one matched query record.
 	//

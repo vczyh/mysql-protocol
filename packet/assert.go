@@ -11,64 +11,41 @@ const (
 )
 
 func IsOK(data []byte) bool {
-	if len(data) < 5 {
-		return false
-	}
-	payloadLen := FixedLengthInteger.Get(data[:3])
-	return data[4] == OKPacketHeader && payloadLen >= 7
+	return data[0] == OKPacketHeader && len(data) >= 7
 }
 
 func IsEOF(data []byte) bool {
-	if len(data) < 5 {
-		return false
-	}
-	payloadLen := FixedLengthInteger.Get(data[:3])
-	return data[4] == EOFPacketHeader && payloadLen < 9
+	return data[0] == EOFPacketHeader && len(data) < 9
 }
 
 func IsErr(data []byte) bool {
-	if len(data) < 5 {
-		return false
-	}
-	return data[4] == ErrPacketHeader
+	return data[0] == ErrPacketHeader
 }
 
 func IsAuthSwitchRequest(data []byte) bool {
-	if len(data) < 5 {
-		return false
-	}
-	return data[4] == AuthSwitchRequestPacketHeader
+	return data[0] == AuthSwitchRequestPacketHeader
 }
 
 func IsAuthMoreData(data []byte) bool {
-	if len(data) < 5 {
-		return false
-	}
-	return data[4] == AuthMoreDataPacketHeader
+	return data[0] == AuthMoreDataPacketHeader
 }
 
 func IsLocalInfileRequest(data []byte) bool {
-	if len(data) < 5 {
-		return false
-	}
-	return data[4] == LocalInfileRequestHeader
+	return data[0] == LocalInfileRequestHeader
 }
 
 func IsRequestPublicKey(data []byte) bool {
-	if len(data) < 5 {
-		return false
-	}
-	return data[4] == RequestPublicKeyHeader
+	return data[0] == RequestPublicKeyHeader
 }
 
 func IsPing(data []byte) bool {
-	return len(data) == 5 && data[4] == ComPing.Byte()
+	return len(data) == 1 && data[0] == ComPing.Byte()
 }
 
 func IsQuery(data []byte) bool {
-	return len(data) > 4 && data[4] == ComQuery.Byte()
+	return data[0] == ComQuery.Byte()
 }
 
 func IsQuit(data []byte) bool {
-	return len(data) == 5 && data[4] == ComQuit.Byte()
+	return len(data) == 1 && data[0] == ComQuit.Byte()
 }

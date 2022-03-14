@@ -116,8 +116,6 @@ func (t TableColumnType) String() string {
 
 // ColumnDefinition https://dev.mysql.com/doc/internals/en/com-query-response.html#column-definition
 type ColumnDefinition struct {
-	Header
-
 	Catalog      string // def
 	Schema       string
 	Table        string
@@ -134,14 +132,9 @@ type ColumnDefinition struct {
 	// TODO command was COM_FIELD_LIST
 }
 
-func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
-	var p ColumnDefinition
-	var err error
-
+func ParseColumnDefinition(bs []byte) (p *ColumnDefinition, err error) {
+	p = new(ColumnDefinition)
 	buf := bytes.NewBuffer(bs)
-	if err = p.Header.Parse(buf); err != nil {
-		return nil, err
-	}
 
 	var b []byte
 	if b, err = LengthEncodedString.Get(buf); err != nil {
@@ -193,7 +186,7 @@ func ParseColumnDefinition(bs []byte) (*ColumnDefinition, error) {
 	// filler [00] [00]
 	buf.Next(2)
 
-	return &p, nil
+	return p, nil
 }
 
 func (p *ColumnDefinition) Dump(capabilities flag.Capability) ([]byte, error) {
@@ -223,17 +216,7 @@ func (p *ColumnDefinition) Dump(capabilities flag.Capability) ([]byte, error) {
 
 	payload.Write([]byte{0x00, 0x00})
 
-	p.Length = uint32(payload.Len())
-
-	dump := make([]byte, 3+1+p.Length)
-	headerDump, err := p.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payload.Bytes())
-
-	return dump, nil
+	return payload.Bytes(), nil
 }
 
 type ColumnValue struct {

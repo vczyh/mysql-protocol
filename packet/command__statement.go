@@ -7,8 +7,6 @@ import (
 
 // StmtPrepareOKFirst https://dev.mysql.com/doc/internals/en/com-stmt-prepare-response.html#packet-COM_STMT_PREPARE_OK
 type StmtPrepareOKFirst struct {
-	Header
-
 	Status       uint8
 	StmtId       uint32
 	ColumnCount  uint16
@@ -16,15 +14,10 @@ type StmtPrepareOKFirst struct {
 	WarningCount uint16
 }
 
-func ParseStmtPrepareOKFirst(data []byte) (*StmtPrepareOKFirst, error) {
-	var p StmtPrepareOKFirst
-	var err error
+func ParseStmtPrepareOKFirst(data []byte) (p *StmtPrepareOKFirst, err error) {
+	p = new(StmtPrepareOKFirst)
 
 	buf := bytes.NewBuffer(data)
-	if err = p.Header.Parse(buf); err != nil {
-		return nil, err
-	}
-
 	if p.Status, err = buf.ReadByte(); err != nil {
 		return nil, err
 	}
@@ -36,13 +29,11 @@ func ParseStmtPrepareOKFirst(data []byte) (*StmtPrepareOKFirst, error) {
 	buf.Next(1)
 	p.WarningCount = uint16(FixedLengthInteger.Get(buf.Next(2)))
 
-	return &p, nil
+	return p, nil
 }
 
 // StmtExecute https://dev.mysql.com/doc/internals/en/com-stmt-execute.html
 type StmtExecute struct {
-	Header
-
 	ComStmtExecute     uint8
 	StmtId             uint32
 	Flags              uint8
@@ -51,13 +42,6 @@ type StmtExecute struct {
 	NewParamsBoundFlag uint8
 	ParamType          []byte
 	ParamValue         []byte
-}
-
-func NewStmtExecute() *StmtExecute {
-	return &StmtExecute{
-		IterationCount: 1,
-		ComStmtExecute: ComStmtExecute.Byte(),
-	}
 }
 
 func (p *StmtExecute) CreateNullBitMap(paramCount int) {
@@ -94,15 +78,5 @@ func (p *StmtExecute) Dump(capabilities flag.Capability) ([]byte, error) {
 		payload.Write(p.ParamValue)
 	}
 
-	p.Length = uint32(payload.Len())
-
-	dump := make([]byte, 3+1+p.Length)
-	headerDump, err := p.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payload.Bytes())
-
-	return dump, nil
+	return payload.Bytes(), nil
 }

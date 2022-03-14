@@ -10,9 +10,7 @@ import (
 
 // ERR https://dev.mysql.com/doc/internals/en/packet-ERR_Packet.html
 type ERR struct {
-	Header
-
-	ERRHeader      uint8
+	ERRHeader      uint8 // 0xff
 	ErrorCode      code.Err
 	SqlStateMarker byte // 0x23
 	SqlState       string
@@ -31,14 +29,9 @@ func NewERR(err error) *ERR {
 }
 
 func ParseERR(bs []byte, capabilities flag.Capability) (*ERR, error) {
-	var p ERR
-	var err error
+	p := new(ERR)
 
 	buf := bytes.NewBuffer(bs)
-	// Header
-	if err = p.Parse(buf); err != nil {
-		return nil, err
-	}
 
 	// ERR Header
 	if buf.Len() == 0 {
@@ -62,7 +55,7 @@ func ParseERR(bs []byte, capabilities flag.Capability) (*ERR, error) {
 	// Error Message
 	p.ErrorMessage = buf.String()
 
-	return &p, nil
+	return p, nil
 }
 
 func (e *ERR) Dump(capabilities flag.Capability) ([]byte, error) {
@@ -80,17 +73,7 @@ func (e *ERR) Dump(capabilities flag.Capability) ([]byte, error) {
 
 	payload.WriteString(e.ErrorMessage)
 
-	e.Length = uint32(payload.Len())
-
-	dump := make([]byte, 3+1+e.Length)
-	headerDump, err := e.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payload.Bytes())
-
-	return dump, nil
+	return payload.Bytes(), nil
 }
 
 func (e *ERR) Error() string {

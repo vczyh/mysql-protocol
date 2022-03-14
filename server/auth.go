@@ -275,7 +275,7 @@ func (s *server) plaintextPassword(conn mysql.Conn, privateKey *rsa.PrivateKey, 
 	if s.privateKey == nil {
 		return nil, ErrPrivateKeyNotFond
 	}
-	plain, err := rsa.DecryptOAEP(sha1.New(), rand.Reader, privateKey, data[4:], nil)
+	plain, err := rsa.DecryptOAEP(sha1.New(), rand.Reader, privateKey, data, nil)
 	if err != nil {
 		return nil, err
 	}

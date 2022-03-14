@@ -7,8 +7,6 @@ import (
 
 // EOF https://dev.mysql.com/doc/internals/en/packet-EOF_Packet.html
 type EOF struct {
-	Header
-
 	EOFHeader    uint8
 	WarningCount uint16
 	StatusFlags  flag.Status
@@ -23,14 +21,9 @@ func NewEOF(warningCount int, statusFlag flag.Status) *EOF {
 }
 
 func ParseEOF(bs []byte, capabilities flag.Capability) (*EOF, error) {
-	var p EOF
-	var err error
+	p := new(EOF)
 
 	buf := bytes.NewBuffer(bs)
-	// Header
-	if err = p.Header.Parse(buf); err != nil {
-		return nil, err
-	}
 
 	// EOF Header
 	if buf.Len() == 0 {
@@ -45,7 +38,7 @@ func ParseEOF(bs []byte, capabilities flag.Capability) (*EOF, error) {
 		p.StatusFlags = flag.Status(FixedLengthInteger.Get(buf.Next(2)))
 	}
 
-	return &p, nil
+	return p, nil
 }
 
 func (eof *EOF) Dump(capabilities flag.Capability) ([]byte, error) {
@@ -57,15 +50,5 @@ func (eof *EOF) Dump(capabilities flag.Capability) ([]byte, error) {
 		payload.Write(FixedLengthInteger.Dump(uint64(eof.StatusFlags), 2))
 	}
 
-	eof.Length = uint32(payload.Len())
-
-	dump := make([]byte, 3+1+eof.Length)
-	headerDump, err := eof.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payload.Bytes())
-
-	return dump, nil
+	return payload.Bytes(), nil
 }

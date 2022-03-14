@@ -163,7 +163,7 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 		}
 
 	case packet.IsQuery(data):
-		rs, err := s.config.Handler.Query(string(data[5:]))
+		rs, err := s.config.Handler.Query(string(data[1:]))
 		if err != nil {
 			err = conn.WriteError(err)
 			break
@@ -179,7 +179,7 @@ func (s *server) handleCommand(conn mysql.Conn) error {
 		s.closeConnection(conn)
 
 	default:
-		s.config.Handler.Other(data[4:], conn)
+		s.config.Handler.Other(data[1:], conn)
 	}
 
 	return err

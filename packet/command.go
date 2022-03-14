@@ -118,19 +118,14 @@ func (c Command) String() string {
 }
 
 func NewCmd(cmd Command, data []byte) *Simple {
-	data = append([]byte{byte(cmd)}, data...)
-	return NewSimple(data)
+	return NewSimple(append([]byte{byte(cmd)}, data...))
 }
 
 func ParseColumnCount(data []byte) (uint64, error) {
-	if len(data) < 5 {
-		return 0, ErrPacketData
-	}
-	buf := bytes.NewBuffer(data[4:])
-	columnCount, err := LengthEncodedInteger.Get(buf)
-	return columnCount, err
+	buf := bytes.NewBuffer(data)
+	return LengthEncodedInteger.Get(buf)
 }
 
-func NewColumnCount(count int) (Packet, error) {
-	return NewSimple(LengthEncodedInteger.Dump(uint64(count))), nil
+func NewColumnCount(count int) Packet {
+	return NewSimple(LengthEncodedInteger.Dump(uint64(count)))
 }

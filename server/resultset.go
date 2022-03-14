@@ -89,10 +89,7 @@ func (rs *ResultSet) WriteText(conn mysql.Conn) error {
 	columnDefs := rs.columnDefinitionPackets()
 
 	// column count packet
-	columnCountPkt, err := packet.NewColumnCount(len(columnDefs))
-	if err != nil {
-		return err
-	}
+	columnCountPkt := packet.NewColumnCount(len(columnDefs))
 	if err := conn.WritePacket(columnCountPkt); err != nil {
 		return err
 	}

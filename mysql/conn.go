@@ -128,33 +128,51 @@ func (c *mysqlConn) ReadPacket() ([]byte, error) {
 	// TODO
 	fmt.Println(hex.Dump(pktData))
 
-	return pktData, nil
+	return payloadData, nil
 }
 
 func (c *mysqlConn) WritePacket(packet packet.Packet) error {
 	c.sequence++
-	packet.SetSequence(c.sequence)
-	dump, err := packet.Dump(c.capabilities)
+
+	data, err := packet.Dump(c.capabilities)
 	if err != nil {
 		return err
 	}
+	headerData := c.buildPacketHeader(len(data))
+	pktData := append(headerData, data...)
+
 	// TODO
-	fmt.Println(hex.Dump(dump))
-	_, err = c.getConnection().Write(dump)
-	return err
+	fmt.Println(hex.Dump(pktData))
+	return c.write(pktData)
 }
 
 func (c *mysqlConn) WriteCommandPacket(packet packet.Packet) error {
 	c.sequence = 0
-	packet.SetSequence(c.sequence)
-	dump, err := packet.Dump(c.capabilities)
+	data, err := packet.Dump(c.capabilities)
 	if err != nil {
 		return err
 	}
+	headerData := c.buildPacketHeader(len(data))
+	pktData := append(headerData, data...)
+
 	// TODO
-	fmt.Println(hex.Dump(dump))
-	_, err = c.getConnection().Write(dump)
+	fmt.Println(hex.Dump(pktData))
+	return c.write(pktData)
+}
+
+func (c *mysqlConn) write(pktData []byte) error {
+	_, err := c.getConnection().Write(pktData)
 	return err
+}
+
+func (c *mysqlConn) buildPacketHeader(len int) []byte {
+	payloadLen := packet.FixedLengthInteger.Dump(uint64(len), 3)
+	pktSeq := packet.FixedLengthInteger.Dump(uint64(c.sequence), 1)
+
+	b := make([]byte, 4)
+	copy(b, payloadLen)
+	copy(b[3:], pktSeq)
+	return b
 }
 
 func (c *mysqlConn) WriteEmptyOK() error {

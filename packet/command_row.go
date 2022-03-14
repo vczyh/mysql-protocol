@@ -14,7 +14,6 @@ type Row []ColumnValue
 
 // TextResultSetRow https://dev.mysql.com/doc/internals/en/com-query-response.html#packet-ProtocolText::ResultsetRow
 type TextResultSetRow struct {
-	Header
 	Row Row
 }
 
@@ -23,9 +22,6 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 	var err error
 
 	buf := bytes.NewBuffer(data)
-	if err = p.Header.Parse(buf); err != nil {
-		return nil, err
-	}
 
 	values := make([]ColumnValue, len(columns))
 	rowData, pos := buf.Bytes(), 0
@@ -156,6 +152,7 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 		}
 	}
 
+	// TODO
 	for _, val := range values {
 		p.Row = append(p.Row, val)
 	}
@@ -174,23 +171,11 @@ func (p *TextResultSetRow) Dump(capabilities flag.Capability) ([]byte, error) {
 		payload.Write(valDump)
 	}
 
-	p.Length = uint32(payload.Len())
-
-	dump := make([]byte, 3+1+p.Length)
-	headerDump, err := p.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payload.Bytes())
-
-	return dump, nil
+	return payload.Bytes(), nil
 }
 
 type BinaryResultSetRow struct {
-	Header
-
-	PktHeader  byte
+	PktHeader  byte // 0x00
 	NullBitMap []byte
 	Row        Row
 }
@@ -200,10 +185,6 @@ func ParseBinaryResultSetRow(data []byte, columns []ColumnDefinition, loc *time.
 	var err error
 
 	buf := bytes.NewBuffer(data)
-	if err = p.Header.Parse(buf); err != nil {
-		return nil, err
-	}
-
 	if p.PktHeader, err = buf.ReadByte(); err != nil {
 		return nil, err
 	}
@@ -365,6 +346,11 @@ func (p *BinaryResultSetRow) NullBitMapGet(index int) bool {
 	bytePos := (index + offset) >> 3
 	bitPos := (index + offset) % 8
 	return (p.NullBitMap[bytePos]>>bitPos)&1 != 0
+}
+
+func (p *BinaryResultSetRow) Dump(capability flag.Capability) ([]byte, error) {
+	// TODO
+	panic("implement me")
 }
 
 func parseDatetime(datetime string, loc *time.Location) (*time.Time, error) {

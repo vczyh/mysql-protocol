@@ -7,8 +7,6 @@ import (
 
 // OK https://dev.mysql.com/doc/internals/en/packet-OK_Packet.html
 type OK struct {
-	Header
-
 	OKHeader            uint8 // 0x00
 	AffectedRows        uint64
 	LastInsertId        uint64
@@ -30,15 +28,10 @@ const (
 //	Data []byte
 //}
 
-func ParseOk(bs []byte, capabilities flag.Capability) (*OK, error) {
-	var p OK
-	var err error
+func ParseOk(bs []byte, capabilities flag.Capability) (p *OK, err error) {
+	p = new(OK)
 
 	buf := bytes.NewBuffer(bs)
-	// Header
-	if err = p.Header.Parse(buf); err != nil {
-		return nil, err
-	}
 
 	// OK Header
 	if buf.Len() == 0 {
@@ -82,7 +75,7 @@ func ParseOk(bs []byte, capabilities flag.Capability) (*OK, error) {
 		p.Info = buf.Bytes()
 	}
 
-	return &p, nil
+	return p, nil
 }
 
 func (p *OK) Dump(capabilities flag.Capability) ([]byte, error) {
@@ -112,15 +105,5 @@ func (p *OK) Dump(capabilities flag.Capability) ([]byte, error) {
 		payload.Write(p.Info)
 	}
 
-	p.Length = uint32(payload.Len())
-
-	dump := make([]byte, 3+1+p.Length)
-	headerDump, err := p.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payload.Bytes())
-
-	return dump, nil
+	return payload.Bytes(), nil
 }

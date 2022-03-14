@@ -7,8 +7,6 @@ import (
 )
 
 type AuthSwitchRequest struct {
-	Header
-
 	PayloadHeader uint8 // 0xfe
 	AuthPlugin    auth.Method
 	AuthData      []byte
@@ -23,14 +21,9 @@ func NewAuthSwitchRequest(method auth.Method, authData []byte) *AuthSwitchReques
 }
 
 func ParseAuthSwitchRequest(data []byte) (*AuthSwitchRequest, error) {
-	var p AuthSwitchRequest
-	var err error
+	p := new(AuthSwitchRequest)
 
 	buf := bytes.NewBuffer(data)
-	if err = p.Header.Parse(buf); err != nil {
-		return nil, err
-	}
-
 	p.PayloadHeader = uint8(FixedLengthInteger.Get(buf.Next(1)))
 
 	pluginName, err := NulTerminatedString.Get(buf)
@@ -43,7 +36,7 @@ func ParseAuthSwitchRequest(data []byte) (*AuthSwitchRequest, error) {
 
 	p.AuthData = buf.Bytes()
 
-	return &p, nil
+	return p, nil
 }
 
 func (p *AuthSwitchRequest) Dump(capabilities flag.Capability) ([]byte, error) {
@@ -53,15 +46,5 @@ func (p *AuthSwitchRequest) Dump(capabilities flag.Capability) ([]byte, error) {
 	payload.Write(NulTerminatedString.Dump([]byte(p.AuthPlugin.String())))
 	payload.Write(p.AuthData)
 
-	p.Length = uint32(payload.Len())
-
-	dump := make([]byte, 3+1+p.Length)
-	headerDump, err := p.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payload.Bytes())
-
-	return dump, nil
+	return payload.Bytes(), nil
 }

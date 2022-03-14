@@ -11,8 +11,6 @@ import (
 
 // Handshake https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::Handshake
 type Handshake struct {
-	Header
-
 	ProtocolVersion         uint8
 	ServerVersion           string
 	ConnectionId            uint32
@@ -27,14 +25,9 @@ type Handshake struct {
 }
 
 func ParseHandshake(bs []byte) (*Handshake, error) {
-	var p Handshake
-	var err error
+	p := new(Handshake)
 
 	buf := bytes.NewBuffer(bs)
-	// Header
-	if err := p.Parse(buf); err != nil {
-		return nil, err
-	}
 
 	// Protocol Version
 	if buf.Len() == 0 {
@@ -62,7 +55,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 	p.CapabilityFlags = flag.Capability(FixedLengthInteger.Get(buf.Next(2)))
 
 	if buf.Len() == 0 {
-		return &p, err
+		return p, err
 	}
 
 	// Character Set
@@ -121,7 +114,7 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 		}
 	}
 
-	return &p, nil
+	return p, nil
 }
 
 func (p *Handshake) GetCapabilities() flag.Capability {
@@ -194,23 +187,11 @@ func (p *Handshake) Dump(capabilities flag.Capability) ([]byte, error) {
 		payload.Write(NulTerminatedString.Dump([]byte(p.AuthPlugin.String())))
 	}
 
-	p.Length = uint32(payload.Len())
-
-	dump := make([]byte, 3+1+p.Length)
-	headerDump, err := p.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payload.Bytes())
-
-	return dump, nil
+	return payload.Bytes(), nil
 }
 
 // HandshakeResponse https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::HandshakeResponse
 type HandshakeResponse struct {
-	Header
-
 	ClientCapabilityFlags flag.Capability
 	MaxPacketSize         uint32
 	CharacterSet          *charset.Collation
@@ -228,15 +209,10 @@ type Attribute struct {
 	Val string
 }
 
-func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
-	var p HandshakeResponse
-	var err error
+func ParseHandshakeResponse(bs []byte) (p *HandshakeResponse, err error) {
+	p = new(HandshakeResponse)
 
 	buf := bytes.NewBuffer(bs)
-	// Header
-	if err = p.Parse(buf); err != nil {
-		return nil, err
-	}
 
 	// Client Capability Flags
 	p.ClientCapabilityFlags = flag.Capability(uint32(FixedLengthInteger.Get(buf.Next(4))))
@@ -322,7 +298,7 @@ func ParseHandshakeResponse(bs []byte) (*HandshakeResponse, error) {
 		}
 	}
 
-	return &p, nil
+	return p, nil
 }
 
 func (p *HandshakeResponse) Dump(capabilities flag.Capability) ([]byte, error) {
@@ -373,17 +349,7 @@ func (p *HandshakeResponse) Dump(capabilities flag.Capability) ([]byte, error) {
 	clientCapabilities := FixedLengthInteger.Dump(uint64(p.ClientCapabilityFlags), 4)
 	payloadBs := append(clientCapabilities, payload.Bytes()...)
 
-	p.Length = uint32(len(payloadBs))
-
-	dump := make([]byte, 3+1+p.Length)
-	headerDump, err := p.Header.Dump(capabilities)
-	if err != nil {
-		return nil, err
-	}
-	copy(dump, headerDump)
-	copy(dump[4:], payloadBs)
-
-	return dump, nil
+	return payloadBs, nil
 }
 
 func (p *HandshakeResponse) AddAttribute(key string, val string) {
