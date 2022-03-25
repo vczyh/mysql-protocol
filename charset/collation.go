@@ -1,5 +1,7 @@
 package charset
 
+import "fmt"
+
 var Collations = map[string]*Collation{
 	"utf8_general_ci":    Utf8GeneralCi,
 	"utf8mb4_general_ci": Utf8mb4GeneralCi,
@@ -27,4 +29,20 @@ type Collation struct {
 	Id            uint8
 	CharSetName   string
 	CollationName string
+}
+
+type Charset string
+
+const (
+	CharsetUtf8    Charset = "utf8"
+	CharsetUtf8mb4 Charset = "utf8mb4"
+	CharsetBinary  Charset = "binary"
+)
+
+func GetCollation(id uint8) (*Collation, error) {
+	collation, ok := CollationIds[id]
+	if !ok {
+		return nil, fmt.Errorf("collation id not found")
+	}
+	return collation, nil
 }
