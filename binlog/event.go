@@ -77,3 +77,48 @@ func boolToInt(b bool) uint8 {
 	}
 	return 0
 }
+
+func createBitmap(cnt int, buf *bytes.Buffer) (*BitSet, error) {
+	bs, err := NewBitSet(cnt)
+	if err != nil {
+		return nil, err
+	}
+
+	for bit := 0; bit < cnt; bit += 8 {
+		flag, err := buf.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+
+		if flag == 0 {
+			continue
+		}
+
+		if (flag & 0x01) != 0 {
+			bs.Set(bit)
+		}
+		if (flag & 0x02) != 0 {
+			bs.Set(bit + 1)
+		}
+		if (flag & 0x04) != 0 {
+			bs.Set(bit + 2)
+		}
+		if (flag & 0x08) != 0 {
+			bs.Set(bit + 3)
+		}
+		if (flag & 0x10) != 0 {
+			bs.Set(bit + 4)
+		}
+		if (flag & 0x20) != 0 {
+			bs.Set(bit + 5)
+		}
+		if (flag & 0x40) != 0 {
+			bs.Set(bit + 6)
+		}
+		if (flag & 0x80) != 0 {
+			bs.Set(bit + 7)
+		}
+	}
+
+	return bs, nil
+}

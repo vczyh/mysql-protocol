@@ -2,7 +2,6 @@ package packet
 
 import (
 	"bytes"
-	"fmt"
 	"github.com/vczyh/mysql-protocol/charset"
 	"github.com/vczyh/mysql-protocol/flag"
 )
@@ -28,9 +27,9 @@ func ParseSSLRequest(data []byte) (*SSLRequest, error) {
 		return nil, ErrPacketData
 	}
 	collationId := buf.Next(1)[0]
-	collation, ok := charset.CollationIds[collationId]
-	if !ok {
-		return nil, fmt.Errorf("unknown collation id %d", collationId)
+	collation, err := charset.GetCollation(uint64(collationId))
+	if err != nil {
+		return nil, err
 	}
 	p.CharacterSet = collation
 
@@ -48,7 +47,7 @@ func (p *SSLRequest) Dump(capabilities flag.Capability) ([]byte, error) {
 	payload.Write(FixedLengthInteger.Dump(uint64(p.MaxPacketSize), 4))
 
 	// Character Set
-	payload.Write(FixedLengthInteger.Dump(uint64(p.CharacterSet.Id), 1))
+	payload.Write(FixedLengthInteger.Dump(uint64(p.CharacterSet.Id()), 1))
 
 	// Reserved
 	for i := 0; i < 23; i++ {

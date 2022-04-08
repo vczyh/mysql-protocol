@@ -41,6 +41,8 @@ func (p *Parser) ParseEvent(data []byte) (Event, error) {
 	switch eventType {
 	case EventTypeQuery:
 		return ParseQueryEvent(b, p.fde)
+	case EventTypeTableMap:
+		return ParseTableMapEvent(b, p.fde)
 	default:
 		return nil, fmt.Errorf("unsupported event type")
 	}

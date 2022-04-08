@@ -97,7 +97,11 @@ func (c *Conn) build() error {
 		c.loc = time.Local
 	}
 	if c.collation == nil {
-		c.collation = charset.Utf8mb4GeneralCi
+		collation, err := charset.GetCollationByName(charset.UTF8MB4GeneralCi)
+		if err != nil {
+			return err
+		}
+		c.collation = collation
 	}
 	return nil
 }

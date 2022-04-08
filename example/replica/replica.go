@@ -14,7 +14,8 @@ func main() {
 		replica.WithPassword("Unicloud@1221"),
 	)
 
-	s, err := r.StartDump("mysql-bin.000029", 4)
+	//s, err := r.StartDump("mysql-bin.000029", 4)
+	s, err := r.StartDump("mysql-bin.000041", 4)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -34,7 +34,7 @@ func (c *Column) String() string {
 	sb.WriteString("Name: " + c.Name)
 	sb.WriteString(", ")
 
-	sb.WriteString(fmt.Sprintf("CharSet: [%s,%s]", c.CharSet.CharSetName, c.CharSet.CollationName))
+	sb.WriteString(fmt.Sprintf("CharSet: [%s,%s]", c.CharSet.Charset().Name(), c.CharSet.Name()))
 	sb.WriteString(", ")
 
 	sb.WriteString(fmt.Sprintf("Length: %d", c.Length))

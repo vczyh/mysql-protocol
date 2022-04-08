@@ -83,8 +83,9 @@ type FormatDescriptionEvent struct {
 	ServerVersion   string
 	CreateTimestamp uint32
 	HeaderLen       uint8
-	PostHeaderLens  []uint8
-	ChecksumAlg     ChecksumAlgorithm
+	//PostHeaderLens  []uint8
+	PostHeaderLenMap map[EventType]uint8
+	ChecksumAlg      ChecksumAlgorithm
 }
 
 func ParseFormatDescriptionEvent(data []byte) (*FormatDescriptionEvent, error) {
@@ -113,16 +114,22 @@ func ParseFormatDescriptionEvent(data []byte) (*FormatDescriptionEvent, error) {
 	e.HeaderLen = b
 
 	// Post header lengths and checksum algorithm
+	var postHeaderLens []uint8
 	if version := productVersion(splitServerVersion(e.ServerVersion)); version >= ChecksumVersionProduct {
-		e.PostHeaderLens = buf.Next(buf.Len() - 1)
+		postHeaderLens = buf.Next(buf.Len() - 1)
 		b, err := buf.ReadByte()
 		if err != nil {
 			return nil, err
 		}
 		e.ChecksumAlg = ChecksumAlgorithm(b)
 	} else {
-		e.PostHeaderLens = buf.Bytes()
+		postHeaderLens = buf.Bytes()
 		e.ChecksumAlg = ChecksumAlgUndefined
+	}
+
+	e.PostHeaderLenMap = make(map[EventType]uint8, len(postHeaderLens))
+	for i, l := range postHeaderLens {
+		e.PostHeaderLenMap[EventType(i+1)] = l
 	}
 
 	return e, nil
@@ -136,16 +143,13 @@ func (e *FormatDescriptionEvent) String() string {
 	fmt.Fprintf(sb, "Server version: %s\n", e.ServerVersion)
 	fmt.Fprintf(sb, "Create timestamp: %s\n", time.Unix(int64(e.CreateTimestamp), 0).Format(time.RFC3339))
 	fmt.Fprintf(sb, "Header length: %d\n", e.HeaderLen)
-	fmt.Fprintf(sb, "Event types number: %d\n", len(e.PostHeaderLens))
+	fmt.Fprintf(sb, "Event types number: %d\n", len(e.PostHeaderLenMap))
 
-	sb.WriteString("Post header lengths: [")
-	for i, l := range e.PostHeaderLens {
-		if i != 0 {
-			sb.WriteString(", ")
-		}
-		fmt.Fprintf(sb, "%s:%d", EventType(i+1), l)
+	var postHeaderLens []string
+	for k, v := range e.PostHeaderLenMap {
+		postHeaderLens = append(postHeaderLens, fmt.Sprintf("%s:%d", k, v))
 	}
-	sb.WriteString("]\n")
+	fmt.Fprintf(sb, "Post header lengths: [%s]\n", strings.Join(postHeaderLens, ", "))
 
 	return sb.String()
 }

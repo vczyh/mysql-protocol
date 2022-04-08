@@ -14,6 +14,14 @@ func (fixedLengthInteger) Get(bs []byte) uint64 {
 	return binary.LittleEndian.Uint64(byteAlignment(bs, 8))
 }
 
+func (fixedLengthInteger) Uint64(bs []byte) uint64 {
+	return binary.LittleEndian.Uint64(byteAlignment(bs, 8))
+}
+
+func (fixedLengthInteger) Uint16(bs []byte) uint16 {
+	return binary.LittleEndian.Uint16(byteAlignment(bs, 2))
+}
+
 func (fixedLengthInteger) Dump(v uint64, len int) []byte {
 	switch len {
 	case 1:

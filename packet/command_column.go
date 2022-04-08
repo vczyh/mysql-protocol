@@ -35,7 +35,11 @@ const (
 	MySQLTypeTimestamp2
 	MySQLTypeDatetime2
 	MySQLTypeTime2
-	MySQLTypeNewDecimal = iota + 0xe2
+	MySQLTypeTypedArray
+	MySQLTypeInvalid = iota + 0xde
+	MySQLTypeBool
+	MysSQLTypeJson
+	MySQLTypeNewDecimal
 	MySQLTypeEnum
 	MySQLTypeSet
 	MySQLTypeTinyBlob
@@ -89,6 +93,14 @@ func (t TableColumnType) String() string {
 		return "MYSQL_TYPE_DATETIME2"
 	case MySQLTypeTime2:
 		return "MYSQL_TYPE_TIME2"
+	case MySQLTypeTypedArray:
+		return "MYSQL_TYPE_TYPED_ARRAY"
+	case MySQLTypeInvalid:
+		return "MYSQL_TYPE_INVALID"
+	case MySQLTypeBool:
+		return "MYSQL_TYPE_BOOL"
+	case MysSQLTypeJson:
+		return "MYSQL_TYPE_JSON"
 	case MySQLTypeNewDecimal:
 		return "MYSQL_TYPE_NEWDECIMAL"
 	case MySQLTypeEnum:
@@ -171,12 +183,11 @@ func ParseColumnDefinition(bs []byte) (p *ColumnDefinition, err error) {
 		return nil, err
 	}
 
-	collationId := uint8(FixedLengthInteger.Get(buf.Next(2)))
-	collation, ok := charset.CollationIds[collationId]
-	if !ok {
-		return nil, fmt.Errorf("unknown collation id %d", collationId)
+	collationId := FixedLengthInteger.Get(buf.Next(2))
+	p.CharacterSet, err = charset.GetCollation(collationId)
+	if err != nil {
+		return nil, err
 	}
-	p.CharacterSet = collation
 
 	p.ColumnLength = uint32(FixedLengthInteger.Get(buf.Next(4)))
 	p.ColumnType = TableColumnType(FixedLengthInteger.Get(buf.Next(1)))
@@ -208,7 +219,7 @@ func (p *ColumnDefinition) Dump(capabilities flag.Capability) ([]byte, error) {
 	}
 	payload.Write(LengthEncodedInteger.Dump(p.NextLength))
 
-	payload.Write(FixedLengthInteger.Dump(uint64(p.CharacterSet.Id), 2))
+	payload.Write(FixedLengthInteger.Dump(p.CharacterSet.Id(), 2))
 	payload.Write(FixedLengthInteger.Dump(uint64(p.ColumnLength), 4))
 	payload.WriteByte(byte(p.ColumnType))
 	payload.Write(FixedLengthInteger.Dump(uint64(p.Flags), 2))

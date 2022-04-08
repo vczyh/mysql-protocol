@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/charset"
 	"github.com/vczyh/mysql-protocol/packet"
 	"strings"
 	"time"
@@ -28,14 +29,14 @@ type QueryEvent struct {
 	AutoIncrementIncrement uint16
 	AutoIncrementOffset    uint16
 	//Charset                []byte // TODO type
-	CharsetClient       string
-	CollationConnection uint16
-	CollationServer     uint16
+	CharsetClient       *charset.Charset
+	CollationConnection *charset.Collation
+	CollationServer     *charset.Collation
 
 	TimeZone string
-	// TODO name
-	Lctime                     uint16
-	CharsetDatabase            uint16
+	// TODO chang to name
+	LcTimeNamesNum             uint16
+	CollationDatabase          *charset.Collation
 	TableMapForUpdate          uint64
 	MasterDataWritten          uint32
 	User                       string
@@ -43,7 +44,7 @@ type QueryEvent struct {
 	MtsAccessedDBNames         []string
 	ExplicitDefaultsTS         Ternary
 	DDLXid                     uint64
-	DefaultCollationForUtf8mb4 uint16
+	DefaultCollationForUtf8mb4 *charset.Collation
 	SQLRequirePrimaryKey       uint8
 	DefaultTableEncryption     uint8
 
@@ -107,7 +108,24 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (*QueryEvent, err
 			e.AutoIncrementIncrement = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
 			e.AutoIncrementOffset = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
 		case QueryStatusVarsCharset:
-			e.Charset = buf.Next(6)
+			collationClientId := packet.FixedLengthInteger.Get(buf.Next(2))
+			collationClient, err := charset.GetCollation(collationClientId)
+			if err != nil {
+				return nil, err
+			}
+			e.CharsetClient = collationClient.Charset()
+
+			collationConnectionId := packet.FixedLengthInteger.Get(buf.Next(2))
+			e.CollationConnection, err = charset.GetCollation(collationConnectionId)
+			if err != nil {
+				return nil, err
+			}
+
+			collationServerId := packet.FixedLengthInteger.Get(buf.Next(2))
+			e.CollationServer, err = charset.GetCollation(collationServerId)
+			if err != nil {
+				return nil, err
+			}
 		case QueryStatusVarsTimeZone:
 			timeZoneLen, err := buf.ReadByte()
 			if err != nil {
@@ -125,9 +143,13 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (*QueryEvent, err
 				e.Catalog = string(buf.Next(int(catalogLen)))
 			}
 		case QueryStatusVarsLcTimeNames:
-			e.Lctime = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
+			e.LcTimeNamesNum = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
 		case QueryStatusVarsCharsetDatabase:
-			e.CharsetDatabase = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
+			collationDatabaseId := packet.FixedLengthInteger.Get(buf.Next(2))
+			e.CollationDatabase, err = charset.GetCollation(collationDatabaseId)
+			if err != nil {
+				return nil, err
+			}
 		case QueryStatusVarsTableMapForUpdate:
 			e.TableMapForUpdate = packet.FixedLengthInteger.Get(buf.Next(8))
 		case QueryStatusVarsMasterDataWritten:
@@ -174,7 +196,11 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (*QueryEvent, err
 		case QueryStatusVarsDDLLoggedWithXid:
 			e.DDLXid = packet.FixedLengthInteger.Get(buf.Next(8))
 		case QueryStatusVarsDefaultCollationForUtf8mb4:
-			e.DefaultCollationForUtf8mb4 = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
+			defaultCollationForUtf8mb4Id := packet.FixedLengthInteger.Get(buf.Next(2))
+			e.DefaultCollationForUtf8mb4, err = charset.GetCollation(defaultCollationForUtf8mb4Id)
+			if err != nil {
+				return nil, err
+			}
 		case QueryStatusVarsSQLRequirePrimaryKey:
 			e.SQLRequirePrimaryKey, err = buf.ReadByte()
 			if err != nil {
@@ -210,14 +236,43 @@ func (e *QueryEvent) String() string {
 	fmt.Fprintf(sb, "Execute time: %s\n", time.Unix(int64(e.ExecTime), 0).Format(time.RFC3339))
 	fmt.Fprintf(sb, "Error code: %d\n", e.ErrCode)
 
-	fmt.Fprintf(sb, "Query options: ")
-	fmt.Fprintf(sb, "foreign_key_checks=%d, ", boolToInt(e.Flags2&OptionNoForeignKeyChecks == 0))
-	fmt.Fprintf(sb, "sql_auto_is_null=%d, ", boolToInt(e.Flags2&OptionAutoIsNull > 0))
-	fmt.Fprintf(sb, "unique_checks=%d, ", boolToInt(e.Flags2&OptionRelaxedUniqueChecks == 0))
-	fmt.Fprintf(sb, "autocommit=%d\n", boolToInt(e.Flags2&OptionNotAutocommit == 0))
+	queryOptions := make([]string, 4)
+	queryOptions[0] = fmt.Sprintf("foreign_key_checks=%d", boolToInt(e.Flags2&OptionNoForeignKeyChecks == 0))
+	queryOptions[1] = fmt.Sprintf("sql_auto_is_null=%d", boolToInt(e.Flags2&OptionAutoIsNull > 0))
+	queryOptions[2] = fmt.Sprintf("unique_checks=%d", boolToInt(e.Flags2&OptionRelaxedUniqueChecks == 0))
+	queryOptions[3] = fmt.Sprintf("autocommit=%d", boolToInt(e.Flags2&OptionNotAutocommit == 0))
+	fmt.Fprintf(sb, "SET %s\n", strings.Join(queryOptions, ", "))
 
-	fmt.Fprintf(sb, "SQL mode: sql_mode=%d\n", e.SQLMode)
-	fmt.Fprintf(sb, "Auto increment: auto_increment_increment=%d, auto_increment_offset=%d\n", e.AutoIncrementIncrement, e.AutoIncrementOffset)
+	fmt.Fprintf(sb, "SET sql_mode=%d\n", e.SQLMode)
+	fmt.Fprintf(sb, "SET auto_increment_increment=%d, auto_increment_offset=%d\n", e.AutoIncrementIncrement, e.AutoIncrementOffset)
+
+	charset := make([]string, 3)
+	if e.CharsetClient != nil {
+		charset[0] = fmt.Sprintf("character_set_client=%s", e.CharsetClient.Name())
+	}
+	if e.CollationConnection != nil {
+		charset[1] = fmt.Sprintf("collation_connection=%s(%d)", e.CollationConnection.Name(), e.CollationConnection.Id())
+	}
+	if e.CollationServer != nil {
+		charset[2] = fmt.Sprintf("collation_server=%s(%d)", e.CollationServer.Name(), e.CollationServer.Id())
+	}
+	fmt.Fprintf(sb, "SET %s\n", strings.Join(charset, ", "))
+
+	if e.TimeZone != "" {
+		fmt.Fprintf(sb, "%s\n", e.TimeZone)
+	}
+
+	fmt.Fprintf(sb, "SET lc_time_names=%d\n", e.LcTimeNamesNum)
+
+	if e.CollationDatabase == nil {
+		fmt.Fprintf(sb, "SET collation_database=DEFAULT\n")
+	} else {
+		fmt.Fprintf(sb, "SET collation_database=%s\n", e.CollationDatabase.Name())
+	}
+
+	if e.DefaultCollationForUtf8mb4 != nil {
+		fmt.Fprintf(sb, "SET default_collation_for_utf8mb4=%s(%d)\n", e.DefaultCollationForUtf8mb4.Name(), e.DefaultCollationForUtf8mb4.Id())
+	}
 
 	fmt.Fprintf(sb, "Database: %s\n", e.Database)
 	fmt.Fprintf(sb, "Query: %s\n", e.Query)

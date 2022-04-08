@@ -3,7 +3,6 @@ package packet
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"github.com/vczyh/mysql-protocol/auth"
 	"github.com/vczyh/mysql-protocol/charset"
 	"github.com/vczyh/mysql-protocol/flag"
@@ -63,11 +62,10 @@ func ParseHandshake(bs []byte) (*Handshake, error) {
 		return nil, ErrPacketData
 	}
 	collationId := buf.Next(1)[0]
-	collation, ok := charset.CollationIds[collationId]
-	if !ok {
-		return nil, fmt.Errorf("unknown collation id %d", collationId)
+	p.CharacterSet, err = charset.GetCollation(uint64(collationId))
+	if err != nil {
+		return nil, err
 	}
-	p.CharacterSet = collation
 
 	// Status Flags
 	p.StatusFlags = flag.Status(FixedLengthInteger.Get(buf.Next(2)))
@@ -156,7 +154,7 @@ func (p *Handshake) Dump(capabilities flag.Capability) ([]byte, error) {
 	payload.Write(FixedLengthInteger.Dump(uint64(p.CapabilityFlags), 2))
 
 	// Character Set
-	payload.WriteByte(p.CharacterSet.Id)
+	payload.Write(FixedLengthInteger.Dump(p.CharacterSet.Id(), 1))
 
 	// Status Flags
 	payload.Write(FixedLengthInteger.Dump(uint64(p.StatusFlags), 2))
@@ -225,11 +223,10 @@ func ParseHandshakeResponse(bs []byte) (p *HandshakeResponse, err error) {
 		return nil, ErrPacketData
 	}
 	collationId := buf.Next(1)[0]
-	collation, ok := charset.CollationIds[collationId]
-	if !ok {
-		return nil, fmt.Errorf("unknown collation id %d", collationId)
+	p.CharacterSet, err = charset.GetCollation(uint64(collationId))
+	if err != nil {
+		return nil, err
 	}
-	p.CharacterSet = collation
 
 	// Reserved
 	buf.Next(23)
@@ -307,7 +304,7 @@ func (p *HandshakeResponse) Dump(capabilities flag.Capability) ([]byte, error) {
 	payload.Write(FixedLengthInteger.Dump(uint64(p.MaxPacketSize), 4))
 
 	// Character Set
-	payload.Write(FixedLengthInteger.Dump(uint64(p.CharacterSet.Id), 1))
+	payload.Write(FixedLengthInteger.Dump(uint64(p.CharacterSet.Id()), 1))
 
 	// Reserved
 	for i := 0; i < 23; i++ {
