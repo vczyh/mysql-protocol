@@ -122,3 +122,45 @@ func createBitmap(cnt int, buf *bytes.Buffer) (*BitSet, error) {
 
 	return bs, nil
 }
+
+func hasSignednessType(t packet.TableColumnType) bool {
+	switch t {
+	case packet.MySQLTypeTiny,
+		packet.MySQLTypeShort,
+		packet.MySQLTypeInt24,
+		packet.MySQLTypeLong,
+		packet.MySQLTypeLongLong,
+		packet.MySQLTypeYear,
+		packet.MySQLTypeFloat,
+		packet.MySQLTypeDouble,
+		// TODO delete it?
+		packet.MySQLTypeDecimal,
+		packet.MySQLTypeNewDecimal:
+		return true
+	default:
+		return false
+	}
+}
+
+func isCharacterType(t packet.TableColumnType) bool {
+	switch t {
+	case packet.MySQLTypeString,
+		// TODO delete it?
+		packet.MySQLTypeVarString,
+		packet.MySQLTypeVarchar,
+		packet.MySQLTypeBlob:
+		return true
+	default:
+		return false
+	}
+}
+
+func isEnumSetType(t packet.TableColumnType) bool {
+	switch t {
+	case packet.MySQLTypeEnum,
+		packet.MySQLTypeSet:
+		return true
+	default:
+		return false
+	}
+}
