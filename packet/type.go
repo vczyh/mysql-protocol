@@ -18,6 +18,10 @@ func (fixedLengthInteger) Uint64(bs []byte) uint64 {
 	return binary.LittleEndian.Uint64(byteAlignment(bs, 8))
 }
 
+func (fixedLengthInteger) Uint32(bs []byte) uint32 {
+	return binary.LittleEndian.Uint32(byteAlignment(bs, 4))
+}
+
 func (fixedLengthInteger) Uint16(bs []byte) uint16 {
 	return binary.LittleEndian.Uint16(byteAlignment(bs, 2))
 }

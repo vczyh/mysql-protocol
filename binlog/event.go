@@ -2,9 +2,11 @@ package binlog
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/vczyh/mysql-protocol/packet"
+	"io"
 	"strings"
 	"time"
 )
@@ -164,3 +166,75 @@ func isEnumSetType(t packet.TableColumnType) bool {
 		return false
 	}
 }
+
+const (
+	digPerDec1  = 9
+	sizeOfInt32 = 4
+)
+
+var (
+	dig2bytes = []int{0, 1, 1, 2, 2, 3, 3, 4, 4, 4}
+	powers10  = []int{
+		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000}
+)
+
+func parseDecimal(data []byte, precision, scale int) (string, error) {
+	intg := precision - scale
+	intg0 := intg / digPerDec1
+	frac0 := scale / digPerDec1
+	intg0x := intg - intg0*digPerDec1
+	frac0x := scale - frac0*digPerDec1
+
+	binSize := intg0*sizeOfInt32 + dig2bytes[intg0x] + frac0*sizeOfInt32 + dig2bytes[frac0x]
+	if len(data) < binSize {
+		return "", io.EOF
+	}
+
+	mask := 0
+	if data[0]&0x80 == 0 {
+		mask = -1
+	}
+
+	data[0] ^= 0x80
+	from := 0
+
+	sb := new(strings.Builder)
+	if mask != 0 {
+		sb.WriteByte('-')
+	}
+
+	if intg0x != 0 {
+		i := dig2bytes[intg0x]
+		var x int
+		switch i {
+		case 1:
+			x = int(data[from])
+		case 2:
+			x = int(binary.BigEndian.Uint16(data))
+		case 3:
+			x = int(uint32(data[2]) | uint32(data[1])<<8 | uint32(data[0])<<16)
+		case 4:
+			x = int(binary.BigEndian.Uint32(data))
+		}
+		from += i
+		x ^= mask
+		if x < 0 || x >= powers10[intg0x+1] {
+			return "", fmt.Errorf("bad format, x exceed: %d, %d", x, powers10[intg0x+1])
+		}
+		if x != 0 {
+
+		}
+	}
+
+	return sb.String(), nil
+}
+
+//func decimalBinSize(precision, scale int) int {
+//	intg := precision - scale
+//	intg0 := intg / digPerDec1
+//	frac0 := scale / digPerDec1
+//	intg0x := intg - intg0*digPerDec1
+//	frac0x := scale - frac0*digPerDec1
+//
+//	return intg0*sizeOfInt32 + dig2bytes[intg0x] + frac0*sizeOfInt32 + dig2bytes[frac0x]
+//}

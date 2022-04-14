@@ -1,6 +1,8 @@
 package binlog
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestBitSet(t *testing.T) {
 	set, err := NewBitSet(10)
@@ -13,8 +15,15 @@ func TestBitSet(t *testing.T) {
 	//t.Log(set.Get(10))
 
 	set.SetValue(5, true)
+	set.SetValue(5, true)
+	set.SetValue(6, true)
+	set.SetValue(6, true)
+	set.SetValue(6, true)
+	set.SetValue(0, true)
+
 	t.Log(set.Get(5))
-	set.Clear(5)
+	//set.Clear(5)
 	t.Log(set.Get(5))
 
+	t.Log(set.Count())
 }
