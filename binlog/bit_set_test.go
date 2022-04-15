@@ -1,11 +1,12 @@
 package binlog
 
 import (
+	"github.com/vczyh/mysql-protocol/mysql"
 	"testing"
 )
 
 func TestBitSet(t *testing.T) {
-	set, err := NewBitSet(10)
+	set, err := mysql.NewBitSet(10)
 	if err != nil {
 		t.Fatal(err)
 	}

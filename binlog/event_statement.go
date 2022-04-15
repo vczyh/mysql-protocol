@@ -1,11 +1,10 @@
 package binlog
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"github.com/vczyh/mysql-protocol/charset"
-	"github.com/vczyh/mysql-protocol/packet"
+	"github.com/vczyh/mysql-protocol/mysql"
 	"strings"
 	"time"
 )
@@ -52,9 +51,9 @@ type QueryEvent struct {
 	Query    string
 }
 
-func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (*QueryEvent, error) {
-	buf := bytes.NewBuffer(data)
-	e := new(QueryEvent)
+func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(QueryEvent)
 
 	// Default
 	e.AutoIncrementIncrement = 1
@@ -66,161 +65,249 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (*QueryEvent, err
 	}
 
 	// Thread id
-	e.ThreadId = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+	if e.ThreadId, err = buf.Uint32(); err != nil {
+		return nil, err
+	}
 
 	// Execute time
-	e.ExecTime = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+	if e.ExecTime, err = buf.Uint32(); err != nil {
+		return nil, err
+	}
 
 	// Database length
-	dbLen, err := buf.ReadByte()
+	dbLen, err := buf.Uint8()
 	if err != nil {
 		return nil, err
 	}
 
 	// Error code
-	e.ErrCode = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
+	if e.ErrCode, err = buf.Uint16(); err != nil {
+		return nil, err
+	}
 
 	// TODO use post header len assert?
 	if fde.BinlogVersion < 4 {
 		return nil, ErrInvalidData
 	}
+
 	// Status vars length
-	statusVarsLen := int(packet.FixedLengthInteger.Get(buf.Next(2)))
+	statusVarsLen, err := buf.Uint16()
+	if err != nil {
+		return nil, err
+	}
 
 	// Status vars
 	l := buf.Len()
-	for l-buf.Len() < statusVarsLen {
-		switch QueryEventStatusVars(buf.Next(1)[0]) {
+	for l-buf.Len() < int(statusVarsLen) {
+		b, err := buf.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+
+		switch QueryEventStatusVars(b) {
 		case QueryStatusVarsFlags2:
-			e.Flags2 = Option(packet.FixedLengthInteger.Get(buf.Next(4)))
-		case QueryStatusVarsSQLMode:
-			e.SQLMode = SQLMode(packet.FixedLengthInteger.Get(buf.Next(8)))
-		case QueryStatusVarsCatalog:
-			catalogLen, err := buf.ReadByte()
+			u, err := buf.Uint32()
 			if err != nil {
 				return nil, err
 			}
-			if catalogLen > 0 {
-				e.Catalog = string(buf.Next(int(catalogLen)))
-				buf.Next(1)
+			e.Flags2 = Option(u)
+
+		case QueryStatusVarsSQLMode:
+			u, err := buf.Uint64()
+			if err != nil {
+				return nil, err
 			}
+			e.SQLMode = SQLMode(u)
+
+		case QueryStatusVarsCatalog:
+			catalogLen, err := buf.Uint8()
+			if err != nil {
+				return nil, err
+			}
+
+			if catalogLen > 0 {
+				next, err := buf.Next(int(catalogLen))
+				if err != nil {
+					return nil, err
+				}
+				e.Catalog = string(next)
+				_, _ = buf.Next(1)
+			}
+
 		case QueryStatusVarsAutoIncrement:
-			e.AutoIncrementIncrement = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
-			e.AutoIncrementOffset = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
+			if e.AutoIncrementIncrement, err = buf.Uint16(); err != nil {
+				return nil, err
+			}
+			if e.AutoIncrementOffset, err = buf.Uint16(); err != nil {
+				return nil, err
+			}
+
 		case QueryStatusVarsCharset:
-			collationClientId := packet.FixedLengthInteger.Get(buf.Next(2))
-			collationClient, err := charset.GetCollation(collationClientId)
+			collationClientId, err := buf.Uint16()
+			if err != nil {
+				return nil, err
+			}
+			collationClient, err := charset.GetCollation(uint64(collationClientId))
 			if err != nil {
 				return nil, err
 			}
 			e.CharsetClient = collationClient.Charset()
 
-			collationConnectionId := packet.FixedLengthInteger.Get(buf.Next(2))
-			e.CollationConnection, err = charset.GetCollation(collationConnectionId)
+			collationConnectionId, err := buf.Uint16()
+			if err != nil {
+				return nil, err
+			}
+			e.CollationConnection, err = charset.GetCollation(uint64(collationConnectionId))
 			if err != nil {
 				return nil, err
 			}
 
-			collationServerId := packet.FixedLengthInteger.Get(buf.Next(2))
-			e.CollationServer, err = charset.GetCollation(collationServerId)
+			collationServerId, err := buf.Uint16()
 			if err != nil {
 				return nil, err
 			}
+			e.CollationServer, err = charset.GetCollation(uint64(collationServerId))
+			if err != nil {
+				return nil, err
+			}
+
 		case QueryStatusVarsTimeZone:
-			timeZoneLen, err := buf.ReadByte()
+			timeZoneLen, err := buf.Uint8()
 			if err != nil {
 				return nil, err
 			}
 			if timeZoneLen > 0 {
-				e.TimeZone = string(buf.Next(int(timeZoneLen)))
+				next, err := buf.Next(int(timeZoneLen))
+				if err != nil {
+					return nil, err
+				}
+				e.TimeZone = string(next)
 			}
+
 		case QueryStatusVarsCatalogNz:
-			catalogLen, err := buf.ReadByte()
+			catalogLen, err := buf.Uint8()
 			if err != nil {
 				return nil, err
 			}
 			if catalogLen > 0 {
-				e.Catalog = string(buf.Next(int(catalogLen)))
+				next, err := buf.Next(int(catalogLen))
+				if err != nil {
+					return nil, err
+				}
+				e.Catalog = string(next)
 			}
+
 		case QueryStatusVarsLcTimeNames:
-			e.LcTimeNamesNum = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
+			if e.LcTimeNamesNum, err = buf.Uint16(); err != nil {
+				return nil, err
+			}
+
 		case QueryStatusVarsCharsetDatabase:
-			collationDatabaseId := packet.FixedLengthInteger.Get(buf.Next(2))
-			e.CollationDatabase, err = charset.GetCollation(collationDatabaseId)
+			collationDatabaseId, err := buf.Uint16()
 			if err != nil {
 				return nil, err
 			}
+			if e.CollationDatabase, err = charset.GetCollation(uint64(collationDatabaseId)); err != nil {
+				return nil, err
+			}
+
 		case QueryStatusVarsTableMapForUpdate:
-			e.TableMapForUpdate = packet.FixedLengthInteger.Get(buf.Next(8))
+			if e.TableMapForUpdate, err = buf.Uint64(); err != nil {
+				return nil, err
+			}
+
 		case QueryStatusVarsMasterDataWritten:
-			e.MasterDataWritten = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+			if e.MasterDataWritten, err = buf.Uint32(); err != nil {
+				return nil, err
+			}
+
 		case QueryStatusVarsInvoker:
-			userLen, err := buf.ReadByte()
+			userLen, err := buf.Uint8()
 			if err != nil {
 				return nil, err
 			}
 			if userLen > 0 {
-				e.User = string(buf.Next(int(userLen)))
+				if e.User, err = buf.NextString(int(userLen)); err != nil {
+					return nil, err
+				}
 			}
-			hostLen, err := buf.ReadByte()
+
+			hostLen, err := buf.Uint8()
 			if err != nil {
 				return nil, err
 			}
 			if hostLen > 0 {
-				e.Host = string(buf.Next(int(hostLen)))
-			}
-		case QueryStatusVarsUpdatedDBNames:
-			mtsAccessedDBs, err := buf.ReadByte()
-			if err != nil {
-				return nil, err
-			}
-			e.MtsAccessedDBNames = make([]string, int(mtsAccessedDBs))
-			for i := uint8(0); i < mtsAccessedDBs; i++ {
-				b, err := packet.NulTerminatedString.Get(buf)
-				if err != nil {
+				if e.Host, err = buf.NextString(int(hostLen)); err != nil {
 					return nil, err
 				}
-				e.MtsAccessedDBNames[i] = string(b)
 			}
-		case QueryStatusVarsMicroseconds:
-			e.EventHeader.Timestamp = uint32(packet.FixedLengthInteger.Get(buf.Next(3)))
-		case QueryStatusVarsExplicitDefaultsForTimestamp:
-			val, err := buf.ReadByte()
+
+		case QueryStatusVarsUpdatedDBNames:
+			mtsAccessedDBs, err := buf.Uint8()
 			if err != nil {
 				return nil, err
 			}
+
+			e.MtsAccessedDBNames = make([]string, mtsAccessedDBs)
+			for i := uint8(0); i < mtsAccessedDBs; i++ {
+				if e.MtsAccessedDBNames[i], err = buf.NulTerminatedString(); err != nil {
+					return nil, err
+				}
+			}
+
+		case QueryStatusVarsMicroseconds:
+			if e.EventHeader.Timestamp, err = buf.Uint24(); err != nil {
+				return nil, err
+			}
+
+		case QueryStatusVarsExplicitDefaultsForTimestamp:
+			val, err := buf.Uint8()
+			if err != nil {
+				return nil, err
+			}
+
 			e.ExplicitDefaultsTS = TernaryOff
 			if val != 0 {
 				e.ExplicitDefaultsTS = TernaryOn
 			}
+
 		case QueryStatusVarsDDLLoggedWithXid:
-			e.DDLXid = packet.FixedLengthInteger.Get(buf.Next(8))
+			if e.DDLXid, err = buf.Uint64(); err != nil {
+				return nil, err
+			}
+
 		case QueryStatusVarsDefaultCollationForUtf8mb4:
-			defaultCollationForUtf8mb4Id := packet.FixedLengthInteger.Get(buf.Next(2))
-			e.DefaultCollationForUtf8mb4, err = charset.GetCollation(defaultCollationForUtf8mb4Id)
+			defaultCollationForUtf8mb4Id, err := buf.Uint16()
 			if err != nil {
 				return nil, err
 			}
+
+			if e.DefaultCollationForUtf8mb4, err = charset.GetCollation(uint64(defaultCollationForUtf8mb4Id)); err != nil {
+				return nil, err
+			}
+
 		case QueryStatusVarsSQLRequirePrimaryKey:
-			e.SQLRequirePrimaryKey, err = buf.ReadByte()
-			if err != nil {
+			if e.SQLRequirePrimaryKey, err = buf.Uint8(); err != nil {
 				return nil, err
 			}
+
 		case QueryStatusVarsDefaultTableEncryption:
-			e.DefaultTableEncryption, err = buf.ReadByte()
-			if err != nil {
+			if e.DefaultTableEncryption, err = buf.Uint8(); err != nil {
 				return nil, err
 			}
+
 		default:
 			return nil, ErrUnsupportedQueryStatusVar
 		}
 	}
 
 	// Database
-	e.Database = string(buf.Next(int(dbLen)))
+	if e.Database, err = buf.NextString(int(dbLen)); err != nil {
+		return nil, err
+	}
 
 	// 0x00
-	buf.Next(1)
+	_, _ = buf.Next(1)
 
 	// Query
 	e.Query = buf.String()

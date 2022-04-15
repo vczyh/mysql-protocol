@@ -1,10 +1,10 @@
 package binlog
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/packet"
 	"io"
 	"strings"
@@ -47,9 +47,11 @@ func (h *EventHeader) String() string {
 	return sb.String()
 }
 
-func FillEventHeader(header *EventHeader, buf *bytes.Buffer) error {
+func FillEventHeader(header *EventHeader, buf *mysql.Buffer) (err error) {
 	// Timestamp
-	header.Timestamp = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+	if header.Timestamp, err = buf.Uint32(); err != nil {
+		return err
+	}
 
 	// EventType
 	b, err := buf.ReadByte()
@@ -59,16 +61,26 @@ func FillEventHeader(header *EventHeader, buf *bytes.Buffer) error {
 	header.EventType = EventType(b)
 
 	// ServerId
-	header.ServerId = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+	if header.ServerId, err = buf.Uint32(); err != nil {
+		return err
+	}
 
 	// Event size (header, post-header, body)
-	header.EventSize = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+	if header.EventSize, err = buf.Uint32(); err != nil {
+		return err
+	}
 
 	// Position of the next event
-	header.LogPos = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+	if header.LogPos, err = buf.Uint32(); err != nil {
+		return err
+	}
 
 	// Flags
-	header.Flags = EventFlag(packet.FixedLengthInteger.Get(buf.Next(2)))
+	u, err := buf.Uint16()
+	if err != nil {
+		return err
+	}
+	header.Flags = EventFlag(u)
 
 	return nil
 }
@@ -80,50 +92,50 @@ func boolToInt(b bool) uint8 {
 	return 0
 }
 
-func createBitmap(cnt int, buf *bytes.Buffer) (*BitSet, error) {
-	bs, err := NewBitSet(cnt)
-	if err != nil {
-		return nil, err
-	}
-
-	for bit := 0; bit < cnt; bit += 8 {
-		flag, err := buf.ReadByte()
-		if err != nil {
-			return nil, err
-		}
-
-		if flag == 0 {
-			continue
-		}
-
-		if (flag & 0x01) != 0 {
-			bs.Set(bit)
-		}
-		if (flag & 0x02) != 0 {
-			bs.Set(bit + 1)
-		}
-		if (flag & 0x04) != 0 {
-			bs.Set(bit + 2)
-		}
-		if (flag & 0x08) != 0 {
-			bs.Set(bit + 3)
-		}
-		if (flag & 0x10) != 0 {
-			bs.Set(bit + 4)
-		}
-		if (flag & 0x20) != 0 {
-			bs.Set(bit + 5)
-		}
-		if (flag & 0x40) != 0 {
-			bs.Set(bit + 6)
-		}
-		if (flag & 0x80) != 0 {
-			bs.Set(bit + 7)
-		}
-	}
-
-	return bs, nil
-}
+//func createBitmap(cnt int, buf *bytes.Buffer) (*mysql.BitSet, error) {
+//	bs, err := mysql.NewBitSet(cnt)
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	for bit := 0; bit < cnt; bit += 8 {
+//		flag, err := buf.ReadByte()
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		if flag == 0 {
+//			continue
+//		}
+//
+//		if (flag & 0x01) != 0 {
+//			bs.Set(bit)
+//		}
+//		if (flag & 0x02) != 0 {
+//			bs.Set(bit + 1)
+//		}
+//		if (flag & 0x04) != 0 {
+//			bs.Set(bit + 2)
+//		}
+//		if (flag & 0x08) != 0 {
+//			bs.Set(bit + 3)
+//		}
+//		if (flag & 0x10) != 0 {
+//			bs.Set(bit + 4)
+//		}
+//		if (flag & 0x20) != 0 {
+//			bs.Set(bit + 5)
+//		}
+//		if (flag & 0x40) != 0 {
+//			bs.Set(bit + 6)
+//		}
+//		if (flag & 0x80) != 0 {
+//			bs.Set(bit + 7)
+//		}
+//	}
+//
+//	return bs, nil
+//}
 
 func hasSignednessType(t packet.TableColumnType) bool {
 	switch t {

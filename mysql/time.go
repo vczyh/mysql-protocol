@@ -27,12 +27,12 @@ type Time struct {
 	t packet.TableColumnType
 }
 
-func NewTimestamp(year, month, day, hour, minute, second, usec int, loc *time.Location) {
-	newDateTime(year, month, day, hour, minute, second, usec, loc, packet.MySQLTypeTimestamp)
+func NewTimestamp(year, month, day, hour, minute, second, usec int, loc *time.Location) Time {
+	return newDateTime(year, month, day, hour, minute, second, usec, loc, packet.MySQLTypeTimestamp)
 }
 
-func NewDateTime(year, month, day, hour, minute, second, usec int, loc *time.Location) {
-	newDateTime(year, month, day, hour, minute, second, usec, loc, packet.MySQLTypeDatetime)
+func NewDateTime(year, month, day, hour, minute, second, usec int, loc *time.Location) Time {
+	return newDateTime(year, month, day, hour, minute, second, usec, loc, packet.MySQLTypeDatetime)
 }
 
 func NewTimestampUnix(usec int64, loc *time.Location) Time {

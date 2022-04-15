@@ -1,17 +1,23 @@
 package binlog
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Parser struct {
 	fde *FormatDescriptionEvent
+
+	tableMap map[uint64]*TableMapEvent
 }
 
 func NewParser() *Parser {
-	return &Parser{}
+	p := new(Parser)
+	p.tableMap = make(map[uint64]*TableMapEvent)
+	return p
 }
 
 // ParseEvent performs binary data to event.
-// data contains CommonHeader, PostHeader, Payload and Checksum.
+// Param data contains CommonHeader, PostHeader, Payload and Checksum.
 func (p *Parser) ParseEvent(data []byte) (Event, error) {
 	b := data[:len(data)-4]
 	eventType := EventType(data[4])
@@ -42,8 +48,24 @@ func (p *Parser) ParseEvent(data []byte) (Event, error) {
 	case EventTypeQuery:
 		return ParseQueryEvent(b, p.fde)
 	case EventTypeTableMap:
-		return ParseTableMapEvent(b, p.fde)
+		table, err := ParseTableMapEvent(b, p.fde)
+		if err != nil {
+			return nil, err
+		}
+		p.tableMap[table.TableId] = table
+		return table, err
+	case EventTypeWriteRowsV2, EventTypeDeleteRowsV2, EventTypeUpdateRowsV2:
+		// TODO partial event
+		return ParseRowsEvent(b, p.fde, p)
 	default:
 		return nil, fmt.Errorf("unsupported event type")
 	}
+}
+
+func (p *Parser) TableMapEvent(tableId uint64) (*TableMapEvent, error) {
+	table, ok := p.tableMap[tableId]
+	if !ok {
+		return nil, fmt.Errorf("TableMap for %d not found", tableId)
+	}
+	return table, nil
 }

@@ -1,10 +1,9 @@
 package binlog
 
 import (
-	"bytes"
 	"encoding/hex"
 	"fmt"
-	"github.com/vczyh/mysql-protocol/packet"
+	"github.com/vczyh/mysql-protocol/mysql"
 	"io"
 	"regexp"
 	"strconv"
@@ -49,20 +48,22 @@ type RotateEvent struct {
 	Name     string
 }
 
-func ParseRotateEvent(data []byte) (*RotateEvent, error) {
-	buf := bytes.NewBuffer(data)
-	e := new(RotateEvent)
+func ParseRotateEvent(data []byte) (e *RotateEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(RotateEvent)
 
 	// Event header
 	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
 		return nil, err
 	}
 
-	// Start position of the next binlog
-	e.Position = packet.FixedLengthInteger.Get(buf.Next(8))
+	// Start position of the next binlog.
+	if e.Position, err = buf.Uint64(); err != nil {
+		return nil, err
+	}
 
-	// Name of the next binlog
-	e.Name = string(buf.Bytes())
+	// Name of the next binlog.
+	e.Name = buf.String()
 
 	return e, nil
 }
@@ -88,9 +89,9 @@ type FormatDescriptionEvent struct {
 	ChecksumAlg      ChecksumAlgorithm
 }
 
-func ParseFormatDescriptionEvent(data []byte) (*FormatDescriptionEvent, error) {
-	buf := bytes.NewBuffer(data)
-	e := new(FormatDescriptionEvent)
+func ParseFormatDescriptionEvent(data []byte) (e *FormatDescriptionEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(FormatDescriptionEvent)
 
 	// Event header
 	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
@@ -98,25 +99,33 @@ func ParseFormatDescriptionEvent(data []byte) (*FormatDescriptionEvent, error) {
 	}
 
 	// Binlog version
-	e.BinlogVersion = uint16(packet.FixedLengthInteger.Get(buf.Next(2)))
+	if e.BinlogVersion, err = buf.Uint16(); err != nil {
+		return nil, err
+	}
 
 	// MySQL server version
-	e.ServerVersion = strings.TrimRight(string(buf.Next(50)), "\u0000")
-
-	// Create timestamp
-	e.CreateTimestamp = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
-
-	// Event header length
-	b, err := buf.ReadByte()
+	next, err := buf.Next(50)
 	if err != nil {
 		return nil, err
 	}
-	e.HeaderLen = b
+	e.ServerVersion = strings.TrimRight(string(next), "\u0000")
+
+	// Create timestamp
+	if e.CreateTimestamp, err = buf.Uint32(); err != nil {
+		return nil, err
+	}
+
+	// Event header length
+	if e.HeaderLen, err = buf.Uint8(); err != nil {
+		return nil, err
+	}
 
 	// Post header lengths and checksum algorithm
 	var postHeaderLens []uint8
 	if version := productVersion(splitServerVersion(e.ServerVersion)); version >= ChecksumVersionProduct {
-		postHeaderLens = buf.Next(buf.Len() - 1)
+		if postHeaderLens, err = buf.Next(buf.Len() - 1); err != nil {
+			return nil, err
+		}
 		b, err := buf.ReadByte()
 		if err != nil {
 			return nil, err
@@ -159,9 +168,9 @@ type PreviousGTIDsEvent struct {
 	GTIDSet string
 }
 
-func ParsePreviousGTIDsEvent(data []byte) (*PreviousGTIDsEvent, error) {
-	buf := bytes.NewBuffer(data)
-	e := new(PreviousGTIDsEvent)
+func ParsePreviousGTIDsEvent(data []byte) (e *PreviousGTIDsEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(PreviousGTIDsEvent)
 
 	// Event header
 	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
@@ -169,27 +178,51 @@ func ParsePreviousGTIDsEvent(data []byte) (*PreviousGTIDsEvent, error) {
 	}
 
 	// GTID set
-	sidNum := packet.FixedLengthInteger.Get(buf.Next(8))
+	sidNum, err := buf.Uint64()
+	if err != nil {
+		return nil, err
+	}
 	set := make([]string, sidNum)
 	for i := 0; i < int(sidNum); i++ {
-		sid := hex.EncodeToString(buf.Next(4)) +
-			"-" + hex.EncodeToString(buf.Next(2)) +
-			"-" + hex.EncodeToString(buf.Next(2)) +
-			"-" + hex.EncodeToString(buf.Next(2)) +
-			"-" + hex.EncodeToString(buf.Next(6))
+		if buf.Len() < 16 {
+			return nil, io.EOF
+		}
 
-		intervalNum := packet.FixedLengthInteger.Get(buf.Next(8))
+		sid := make([]string, 5)
+		next, _ := buf.Next(4)
+		sid[0] = hex.EncodeToString(next)
+		next, _ = buf.Next(2)
+		sid[1] = hex.EncodeToString(next)
+		next, _ = buf.Next(2)
+		sid[2] = hex.EncodeToString(next)
+		next, _ = buf.Next(2)
+		sid[3] = hex.EncodeToString(next)
+		next, _ = buf.Next(6)
+		sid[4] = hex.EncodeToString(next)
+
+		intervalNum, err := buf.Uint64()
+		if err != nil {
+			return nil, err
+		}
 		intervals := make([]string, intervalNum)
 		for j := 0; j < int(intervalNum); j++ {
-			start := packet.FixedLengthInteger.Get(buf.Next(8))
-			end := packet.FixedLengthInteger.Get(buf.Next(8))
+			start, err := buf.Uint64()
+			if err != nil {
+				return nil, err
+			}
+
+			end, err := buf.Uint64()
+			if err != nil {
+				return nil, err
+			}
+
 			if start == end-1 {
 				intervals[j] = strconv.FormatUint(start, 10)
 			} else {
 				intervals[j] = strconv.FormatUint(start, 10) + "-" + strconv.FormatUint(end-1, 10)
 			}
 		}
-		set[i] = sid + ":" + strings.Join(intervals, ":")
+		set[i] = strings.Join(sid, "-") + ":" + strings.Join(intervals, ":")
 	}
 	e.GTIDSet = strings.Join(set, ",")
 
@@ -224,9 +257,9 @@ type GTIDEvent struct {
 	OriginalServerVersion  uint32
 }
 
-func ParseGTIDEvent(data []byte) (*GTIDEvent, error) {
-	buf := bytes.NewBuffer(data)
-	e := new(GTIDEvent)
+func ParseGTIDEvent(data []byte) (e *GTIDEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(GTIDEvent)
 
 	// Event header
 	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
@@ -234,31 +267,40 @@ func ParseGTIDEvent(data []byte) (*GTIDEvent, error) {
 	}
 
 	// Flags
-	b, err := buf.ReadByte()
-	if err != nil {
+	if e.FLags, err = buf.Uint8(); err != nil {
 		return nil, err
 	}
-	e.FLags = b
 
 	// SID
-	e.SID = buf.Next(16)
-	e.GNO = packet.FixedLengthInteger.Get(buf.Next(8))
-
-	// Lc type code
-	b, err = buf.ReadByte()
-	if err != nil {
-		if err == io.EOF {
-			return e, nil
-		}
+	if e.SID, err = buf.Next(16); err != nil {
 		return nil, err
 	}
-	e.LogicalTimestampTypeCode = b
+
+	if e.GNO, err = buf.Uint64(); err != nil {
+		return nil, err
+	}
+
+	// TODO needed?
+	if buf.Len() == 0 {
+		return e, nil
+	}
+
+	// Lc type code
+	e.LogicalTimestampTypeCode, err = buf.Uint8()
+	if err != nil {
+		return nil, err
+	}
 
 	if e.LogicalTimestampTypeCode == 2 {
 		// Last committed
-		e.LastCommitted = packet.FixedLengthInteger.Get(buf.Next(8))
+		if e.LastCommitted, err = buf.Uint64(); err != nil {
+			return nil, err
+		}
+
 		// Sequence number
-		e.SequenceNumber = packet.FixedLengthInteger.Get(buf.Next(8))
+		if e.SequenceNumber, err = buf.Uint64(); err != nil {
+			return nil, err
+		}
 
 		// Fetch the timestamps used to monitor replication lags with respect to
 		// the immediate master and the server that originated this transaction.
@@ -268,10 +310,14 @@ func ParseGTIDEvent(data []byte) (*GTIDEvent, error) {
 		if buf.Len() < 7 {
 			return e, nil
 		}
-		e.ImmediateCommitTimestamp = packet.FixedLengthInteger.Get(buf.Next(7))
+		if e.ImmediateCommitTimestamp, err = buf.Uint56(); err != nil {
+			return nil, err
+		}
 		if e.ImmediateCommitTimestamp&(1<<55) != 0 {
 			e.ImmediateCommitTimestamp &^= 1 << 55
-			e.OriginalCommitTimestamp = packet.FixedLengthInteger.Get(buf.Next(7))
+			if e.OriginalCommitTimestamp, err = buf.Uint56(); err != nil {
+				return nil, err
+			}
 		} else {
 			// The transaction originated in the previous server.
 			e.OriginalCommitTimestamp = e.ImmediateCommitTimestamp
@@ -281,21 +327,25 @@ func ParseGTIDEvent(data []byte) (*GTIDEvent, error) {
 		if buf.Len() < 1 {
 			return e, nil
 		}
-		if e.TransactionLength, err = packet.LengthEncodedInteger.Get(buf); err != nil {
+		if e.TransactionLength, err = buf.LengthEncodedUint64(); err != nil {
 			return nil, err
 		}
 
-		// Fetch the original/immediate_server_version. Set it to
-		// UNDEFINED_SERVER_VERSION if no version can be fetched.
+		// Fetch the original/immediate_server_version.
+		// If no version can be fetched, set it to UNDEFINED_SERVER_VERSION.
 		e.OriginalServerVersion = UndefinedServerVersion
 		e.ImmediateServerVersion = UndefinedServerVersion
 		if buf.Len() < 4 {
 			return e, nil
 		}
-		e.ImmediateServerVersion = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+		if e.ImmediateServerVersion, err = buf.Uint32(); err != nil {
+			return nil, err
+		}
 		if e.ImmediateServerVersion&uint32(1<<31) != 0 {
 			e.ImmediateServerVersion &^= 1 << 31
-			e.OriginalServerVersion = uint32(packet.FixedLengthInteger.Get(buf.Next(4)))
+			if e.OriginalServerVersion, err = buf.Uint32(); err != nil {
+				return nil, err
+			}
 		} else {
 			e.OriginalServerVersion = e.ImmediateServerVersion
 		}
