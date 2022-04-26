@@ -55,6 +55,7 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 	buf := mysql.NewBuffer(data)
 	e = new(QueryEvent)
 
+	// TODO sure?
 	// Default
 	e.AutoIncrementIncrement = 1
 	e.AutoIncrementOffset = 1
@@ -363,6 +364,297 @@ func (e *QueryEvent) String() string {
 
 	fmt.Fprintf(sb, "Database: %s\n", e.Database)
 	fmt.Fprintf(sb, "Query: %s\n", e.Query)
+
+	return sb.String()
+}
+
+type RandEvent struct {
+	EventHeader
+	Seed1 uint64
+	Seed2 uint64
+}
+
+func ParseRandEvent(data []byte) (e *RandEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(RandEvent)
+
+	// Parse event header.
+	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
+		return nil, err
+	}
+
+	// Parse seed1 and seed2.
+	if e.Seed1, err = buf.Uint64(); err != nil {
+		return nil, err
+	}
+	if e.Seed2, err = buf.Uint64(); err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}
+
+func (e *RandEvent) String() string {
+	sb := new(strings.Builder)
+	sb.WriteString(e.EventHeader.String())
+
+	fmt.Fprintf(sb, "Seed1: %d\n", e.Seed1)
+	fmt.Fprintf(sb, "Seed2: %d\n", e.Seed1)
+
+	return sb.String()
+}
+
+type UserVarEvent struct {
+	EventHeader
+	Name    string
+	IsNull  bool
+	Type    UserVarValueType
+	Charset *charset.Charset
+
+	// UserVarValueTypeString: string
+	// UserVarValueTypeReal: float64
+	// UserVarValueTypeInt: int64 or uint64(Flags&UserVarFlagUnsigned!=0)
+	// UserVarValueTypeDecimal: decimal(string)
+	Value interface{}
+
+	Flags UserVarFlag
+}
+
+type UserVarValueType uint8
+
+const (
+	// UserVarValueTypeString represents char.
+	UserVarValueTypeString UserVarValueType = 0
+
+	// UserVarValueTypeReal represents double.
+	UserVarValueTypeReal UserVarValueType = 1
+
+	// UserVarValueTypeInt represents long long.
+	UserVarValueTypeInt UserVarValueType = 2
+
+	// UserVarValueTypeDecimal represents char, to be converted to/from a decimal.
+	UserVarValueTypeDecimal UserVarValueType = 4
+)
+
+func (t UserVarValueType) String() string {
+	switch t {
+	case UserVarValueTypeString:
+		return "String"
+	case UserVarValueTypeReal:
+		return "Double"
+	case UserVarValueTypeInt:
+		return "Int"
+	case UserVarValueTypeDecimal:
+		return "Decimal"
+	default:
+		return "Unknown UserVarValueType"
+	}
+}
+
+type UserVarFlag uint8
+
+const (
+	UserVarFlagUndef UserVarFlag = iota
+	UserVarFlagUnsigned
+)
+
+func ParseUserVarEvent(data []byte) (e *UserVarEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(UserVarEvent)
+
+	// Parse event header.
+	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
+		return nil, err
+	}
+
+	// Parse variable name.
+	nameLen, err := buf.Uint32()
+	if err != nil {
+		return nil, err
+	}
+	if e.Name, err = buf.NextString(int(nameLen)); err != nil {
+		return nil, err
+	}
+
+	// Parse whether value is null.
+	u, err := buf.Uint8()
+	if err != nil {
+		return nil, err
+	}
+	if u == 1 {
+		e.IsNull = true
+	}
+
+	if e.IsNull {
+		e.Type = UserVarValueTypeString
+		collation, err := charset.GetCollation(63)
+		if err != nil {
+			return nil, err
+		}
+		e.Charset = collation.Charset()
+	} else {
+		// Parse variable type.
+		u, err = buf.Uint8()
+		if err != nil {
+			return nil, err
+		}
+		e.Type = UserVarValueType(u)
+
+		// Parse charset
+		u, err := buf.Uint32()
+		if err != nil {
+			return nil, err
+		}
+		collation, err := charset.GetCollation(uint64(u))
+		if err != nil {
+			return nil, err
+		}
+		e.Charset = collation.Charset()
+
+		// Parse value.
+		valueLen, err := buf.Uint32()
+		if err != nil {
+			return nil, err
+		}
+
+		switch e.Type {
+		case UserVarValueTypeString:
+			// TODO other charset?
+			if e.Value, err = buf.NextString(int(valueLen)); err != nil {
+				return nil, err
+			}
+
+		case UserVarValueTypeReal:
+			if e.Value, err = buf.Float64(); err != nil {
+				return nil, err
+			}
+
+		case UserVarValueTypeInt:
+			if valueLen != 8 {
+				return nil, fmt.Errorf("invalid value length %d for UserVarValueTypeInt", valueLen)
+			}
+			val, err := buf.Uint64()
+			if err != nil {
+				return nil, err
+			}
+			e.Value = int64(val)
+
+		case UserVarValueTypeDecimal:
+			precision, err := buf.Uint8()
+			if err != nil {
+				return nil, err
+			}
+			decimals, err := buf.Uint8()
+			if err != nil {
+				return nil, err
+			}
+			if e.Value, err = buf.Decimal(int(precision), int(decimals)); err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, fmt.Errorf("invalid UserVarValueType %d", e.Type)
+		}
+	}
+
+	// Parse flags.
+	e.Flags = UserVarFlagUndef
+	if buf.Len() > 0 {
+		u, err = buf.Uint8()
+		if err != nil {
+			return nil, err
+		}
+		e.Flags = UserVarFlag(u)
+
+		if e.Flags&UserVarFlagUnsigned != 0 {
+			e.Value = uint64(e.Value.(int64))
+		}
+	}
+
+	return e, nil
+}
+
+func (e *UserVarEvent) String() string {
+	sb := new(strings.Builder)
+	sb.WriteString(e.EventHeader.String())
+
+	fmt.Fprintf(sb, "Type: %s\n", e.Type)
+	fmt.Fprintf(sb, "Charset: %s\n", e.Charset.Name())
+	fmt.Fprintf(sb, "Flags: %d\n", e.Flags)
+
+	switch {
+	case e.IsNull:
+		fmt.Fprintf(sb, "SET @%s := NULL\n", e.Name)
+	case e.Type == UserVarValueTypeString:
+		fmt.Fprintf(sb, "SET @%s := '%s'\n", e.Name, e.Value)
+	default:
+		fmt.Fprintf(sb, "SET @%s:=%v\n", e.Name, e.Value)
+	}
+
+	return sb.String()
+}
+
+type IntVarEvent struct {
+	EventHeader
+	Type  IntVarType
+	Value uint64
+}
+
+type IntVarType uint8
+
+const (
+	IntVarTypeInvalidInt IntVarType = iota
+
+	// IntVarTypeLastInsertId indicates the value to use for the LAST_INSERT_ID() function in the next statement.
+	IntVarTypeLastInsertId
+
+	// IntVarTypeInsertId indicates the value to use for an AUTO_INCREMENT column in the next statement.
+	IntVarTypeInsertId
+)
+
+func (t IntVarType) String() string {
+	switch t {
+	case IntVarTypeInvalidInt:
+		return "InvalidInt"
+	case IntVarTypeLastInsertId:
+		return "LastInsertId"
+	case IntVarTypeInsertId:
+		return "InsertId"
+	default:
+		return "UnknownIntVarType"
+	}
+}
+
+func ParseIntVarEvent(data []byte) (e *IntVarEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(IntVarEvent)
+
+	// Parse event header.
+	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
+		return nil, err
+	}
+
+	// Parse type.
+	u, err := buf.Uint8()
+	if err != nil {
+		return nil, err
+	}
+	e.Type = IntVarType(u)
+
+	// Parse value.
+	if e.Value, err = buf.Uint64(); err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}
+
+func (e *IntVarEvent) String() string {
+	sb := new(strings.Builder)
+	sb.WriteString(e.EventHeader.String())
+
+	fmt.Fprintf(sb, "Type: %s\n", e.Type)
+	fmt.Fprintf(sb, "Value: %d\n", e.Value)
 
 	return sb.String()
 }

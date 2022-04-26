@@ -27,6 +27,8 @@ func (p *Parser) ParseEvent(data []byte) (Event, error) {
 	switch eventType {
 	case EventTypeRotate:
 		return ParseRotateEvent(b)
+	case EventTypeStop:
+		return ParseStopEvent(b)
 	case EventTypeFormatDescription:
 		e, err := ParseFormatDescriptionEvent(b)
 		if err != nil {
@@ -38,6 +40,14 @@ func (p *Parser) ParseEvent(data []byte) (Event, error) {
 		return ParsePreviousGTIDsEvent(b)
 	case EventTypeGTID:
 		return ParseGTIDEvent(b)
+	case EventTypeXid:
+		return ParseXidEvent(b)
+	case EventTypeUserVar:
+		return ParseUserVarEvent(b)
+	case EventTypeIntvar:
+		return ParseIntVarEvent(b)
+	case EventTypeIncident:
+		return ParseIncidentEvent(b)
 	}
 
 	if p.fde == nil {

@@ -12,10 +12,12 @@ func main() {
 		replica.WithPort(3306),
 		replica.WithUser("root"),
 		replica.WithPassword("Unicloud@1221"),
+		replica.WithReportHost("zzzz"),
 	)
 
 	//s, err := r.StartDump("mysql-bin.000029", 4)
-	s, err := r.StartDump("mysql-bin.000041", 4)
+	//s, err := r.StartDump("mysql-bin.000041", 4)
+	s, err := r.StartDump("mysql-bin.000042", 4)
 	if err != nil {
 		log.Fatal(err)
 	}

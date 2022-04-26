@@ -3,8 +3,23 @@ package mysql
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"github.com/vczyh/mysql-protocol/packet"
 	"io"
+	"math"
+	"strconv"
+	"strings"
+)
+
+const (
+	digPerDec1  = 9
+	sizeOfInt32 = 4
+	digMax      = 1000000000 - 1
+)
+
+var (
+	dig2bytes = []int{0, 1, 1, 2, 2, 3, 3, 4, 4, 4}
+	powers10  = []uint32{1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000}
 )
 
 type Buffer struct {
@@ -259,6 +274,154 @@ func (b *Buffer) CreateBitmap(cnt int) (*BitSet, error) {
 	}
 
 	return bs, nil
+}
+
+func (b *Buffer) Decimal(precision, frac int) (string, error) {
+	intg := precision - frac
+	intg0 := intg / digPerDec1
+	frac0 := frac / digPerDec1
+	intg0x := intg - intg0*digPerDec1
+	frac0x := frac - frac0*digPerDec1
+
+	binSize := intg0*sizeOfInt32 + dig2bytes[intg0x] + frac0*sizeOfInt32 + dig2bytes[frac0x]
+	if b.Len() < binSize {
+		return "", io.EOF
+	}
+	data, err := b.Next(binSize)
+	if err != nil {
+		return "", err
+	}
+
+	var mask uint32 = 0
+	if data[0]&0x80 == 0 {
+		mask = math.MaxUint32
+	}
+
+	data[0] ^= 0x80
+	from := 0
+
+	sb := new(strings.Builder)
+	if mask != 0 {
+		sb.WriteByte('-')
+	}
+
+	haveData := false
+	if intg0x != 0 {
+		i := dig2bytes[intg0x]
+		var x uint32
+		switch i {
+		case 1:
+			x = uint32(data[from] ^ uint8(mask))
+		case 2:
+			x = uint32(binary.BigEndian.Uint16(data[from:]) ^ uint16(mask))
+		case 3:
+			x = uint32(data[from+2]^uint8(mask)) | uint32(data[from+1]^uint8(mask))<<8 | uint32(data[from]^uint8(mask))<<16
+		case 4:
+			x = binary.BigEndian.Uint32(data[from:]) ^ mask
+		default:
+			return "", fmt.Errorf("invalid intg0x %d for decimal", i)
+		}
+		from += i
+
+		if x >= powers10[intg0x+1] {
+			return "", fmt.Errorf("bad format, x exceed: %d, %d", x, powers10[intg0x+1])
+		}
+		if x != 0 {
+			sb.WriteString(strconv.FormatUint(uint64(x), 10))
+			haveData = true
+		}
+	}
+
+	for i := 0; i < intg0; i++ {
+		x := binary.BigEndian.Uint32(data[from:]) ^ mask
+		from += 4
+
+		if x > powers10[9] {
+			return "", fmt.Errorf("bad format, x exceed: %d, %d", x, digMax)
+		}
+		if !haveData && x == 0 {
+			continue
+		}
+
+		val := strconv.FormatUint(uint64(x), 10)
+		if !haveData {
+			sb.WriteString(val)
+			haveData = true
+		} else {
+			sb.WriteString(strings.Repeat("0", digPerDec1-len(val)))
+			sb.WriteString(val)
+		}
+	}
+
+	// It is empty before the decimal point.
+	if !haveData {
+		sb.WriteByte('0')
+	}
+
+	if frac > 0 {
+		sb.WriteByte('.')
+		for i := 0; i < frac0; i++ {
+			x := binary.BigEndian.Uint32(data[from:]) ^ mask
+			from += 4
+
+			if x > digMax {
+				return "", fmt.Errorf("bad format, x exceed: %d, %d", x, digMax)
+			}
+
+			val := strconv.FormatUint(uint64(x), 10)
+			sb.WriteString(strings.Repeat("0", digPerDec1-len(val)))
+			sb.WriteString(val)
+		}
+
+		if frac0x != 0 {
+			i := dig2bytes[frac0x]
+			var x uint32
+			switch i {
+			case 1:
+				x = uint32(data[from] ^ uint8(mask))
+			case 2:
+				x = uint32(binary.BigEndian.Uint16(data[from:]) ^ uint16(mask))
+			case 3:
+				x = uint32(data[from+2]^uint8(mask)) | uint32(data[from+1]^uint8(mask))<<8 | uint32(data[from]^uint8(mask))<<16
+			case 4:
+				x = binary.BigEndian.Uint32(data[from:]) ^ mask
+			default:
+				return "", fmt.Errorf("invalid frac0x %d for decimal", i)
+			}
+			from += i
+
+			if x != 0 {
+				dig := digPerDec1 - frac0x
+				if x*powers10[dig] > digMax {
+					return "", fmt.Errorf("bad format, x exceed: %d, %d", x, digMax)
+				}
+
+				val := strconv.FormatUint(uint64(x), 10)
+				if n := frac0x - len(val); n > 0 {
+					sb.WriteString(strings.Repeat("0", n))
+				}
+				sb.WriteString(val)
+			}
+		}
+	}
+
+	return sb.String(), nil
+}
+
+func (b *Buffer) Float32() (float32, error) {
+	u, err := b.Uint32()
+	if err != nil {
+		return 0, err
+	}
+	return math.Float32frombits(u), nil
+}
+
+func (b *Buffer) Float64() (float64, error) {
+	u, err := b.Uint64()
+	if err != nil {
+		return 0, err
+	}
+	return math.Float64frombits(u), nil
 }
 
 // ReadByte reads and returns the next byte from the buffer.

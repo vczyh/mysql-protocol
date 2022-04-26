@@ -3,18 +3,26 @@ package replica
 import (
 	"crypto/rand"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/vczyh/mysql-protocol/binlog"
 	"github.com/vczyh/mysql-protocol/client"
 	"github.com/vczyh/mysql-protocol/packet"
+	"io"
 	"math/big"
+	"strconv"
 )
 
 type Replica struct {
-	host     string
-	port     int
-	user     string
-	password string
-	serverId uint32
+	host       string
+	port       int
+	user       string
+	password   string
+	serverId   uint32
+	uuid       string
+	reportHost string
+
+	sourceServerId uint32
+	sourceUUID     string
 
 	conn *client.Conn
 }
@@ -32,7 +40,27 @@ func (r *Replica) StartDump(file string, position int) (*Streamer, error) {
 		return nil, err
 	}
 
-	if _, err := r.conn.Exec("SET @master_binlog_checksum= @@global.binlog_checksum"); err != nil {
+	if _, err := r.conn.Exec("SET @master_binlog_checksum = @@global.binlog_checksum"); err != nil {
+		return nil, err
+	}
+
+	if err := r.getSourceServerId(); err != nil {
+		return nil, err
+	}
+	if r.serverId == r.sourceServerId {
+		return nil, fmt.Errorf("source and replica have equal server id")
+	}
+
+	//r.conn.Exec(fmt.Sprintf("SET @master_heartbeat_period = %s, @source_heartbeat_period = %s",))
+
+	if err := r.getSourceUUID(); err != nil {
+		return nil, err
+	}
+	if r.uuid == r.sourceUUID {
+		return nil, fmt.Errorf("source and replica have equal server uuid")
+	}
+
+	if _, err := r.conn.Exec(fmt.Sprintf("SET @slave_uuid = '%s', @replica_uuid = '%s'", r.uuid, r.uuid)); err != nil {
 		return nil, err
 	}
 
@@ -53,6 +81,50 @@ func (r *Replica) StartDump(file string, position int) (*Streamer, error) {
 func (r *Replica) StartDumpGTID() error {
 	// TODO implement
 	return nil
+}
+
+func (r *Replica) getSourceUUID() error {
+	rows, err := r.conn.Query("SELECT @@GLOBAL.server_uuid")
+	if err != nil {
+		return err
+	}
+
+	for {
+		row, err := rows.Next()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if len(row) == 1 {
+			r.sourceUUID = string(row[0].Value().([]byte))
+		}
+	}
+}
+
+func (r *Replica) getSourceServerId() error {
+	rows, err := r.conn.Query("SELECT @@GLOBAL.server_id")
+	if err != nil {
+		return err
+	}
+
+	for {
+		row, err := rows.Next()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if len(row) == 1 {
+			u, err := strconv.ParseUint(string(row[0].Value().([]byte)), 10, 32)
+			if err != nil {
+				return err
+			}
+			r.sourceServerId = uint32(u)
+		}
+	}
 }
 
 func (r *Replica) stream() *Streamer {
@@ -105,6 +177,14 @@ func (r *Replica) build() (err error) {
 		r.serverId = uint32(bigN.Uint64())
 	}
 
+	if r.uuid == "" {
+		id, err := uuid.NewRandom()
+		if err != nil {
+			return err
+		}
+		r.uuid = id.String()
+	}
+
 	r.conn, err = client.CreateConnection(
 		client.WithHost(r.host),
 		client.WithPort(r.port),
@@ -138,6 +218,7 @@ func (r *Replica) writeRegisterReplicaPacket() error {
 	return r.conn.WriteCommandPacket(&RegisterReplica{
 		Command:  packet.ComRegisterSlave,
 		ServerId: r.serverId,
+		Hostname: r.reportHost,
 	})
 }
 
@@ -177,6 +258,18 @@ func WithPassword(password string) Option {
 func WithServerId(serverId uint32) Option {
 	return optionFunc(func(r *Replica) {
 		r.serverId = serverId
+	})
+}
+
+func WithUUID(uuid string) Option {
+	return optionFunc(func(r *Replica) {
+		r.uuid = uuid
+	})
+}
+
+func WithReportHost(host string) Option {
+	return optionFunc(func(r *Replica) {
+		r.reportHost = host
 	})
 }
 

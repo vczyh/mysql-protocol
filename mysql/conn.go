@@ -126,7 +126,7 @@ func (c *mysqlConn) ReadPacket() ([]byte, error) {
 	pktData = append(pktData, payloadData...)
 
 	// TODO
-	fmt.Println(hex.Dump(pktData))
+	//fmt.Println(hex.Dump(pktData))
 
 	return payloadData, nil
 }
@@ -156,7 +156,7 @@ func (c *mysqlConn) WriteCommandPacket(packet packet.Packet) error {
 	pktData := append(headerData, data...)
 
 	// TODO
-	fmt.Println(hex.Dump(pktData))
+	//fmt.Println(hex.Dump(pktData))
 	return c.write(pktData)
 }
 

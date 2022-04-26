@@ -78,6 +78,22 @@ func (e *RotateEvent) String() string {
 	return sb.String()
 }
 
+type StopEvent struct {
+	EventHeader
+}
+
+func ParseStopEvent(data []byte) (e *StopEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(StopEvent)
+
+	// Event header
+	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}
+
 type FormatDescriptionEvent struct {
 	EventHeader
 	BinlogVersion   uint16
@@ -398,4 +414,101 @@ func productVersion(versionSplit []uint8) int {
 	sum := int(versionSplit[0])*256 + int(versionSplit[1])
 	sum = sum*256 + int(versionSplit[2])
 	return sum
+}
+
+type XidEvent struct {
+	EventHeader
+	Xid uint64
+}
+
+func ParseXidEvent(data []byte) (e *XidEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(XidEvent)
+
+	// Event header
+	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
+		return nil, err
+	}
+
+	e.Xid, err = buf.Uint64()
+	return e, err
+}
+
+func (e *XidEvent) String() string {
+	sb := new(strings.Builder)
+	sb.WriteString(e.EventHeader.String())
+
+	fmt.Fprintf(sb, "Xid: %d\n", e.Xid)
+
+	return sb.String()
+}
+
+type IncidentEvent struct {
+	EventHeader
+	Type    IncidentType
+	Message string
+}
+
+type IncidentType uint16
+
+const (
+	// IncidentNone indicates no incident.
+	IncidentNone IncidentType = iota
+
+	// IncidentLostEvents indicates there are possibly lost events in the replication stream.
+	IncidentLostEvents
+
+	// IncidentCount indicates shall be last event of the enumeration.
+	IncidentCount
+)
+
+func (t IncidentType) String() string {
+	switch t {
+	case IncidentNone:
+		return "IncidentNone"
+	case IncidentLostEvents:
+		return "IncidentLostEvents"
+	case IncidentCount:
+		return "IncidentCount"
+	default:
+		return "UnknownIncidentType"
+	}
+}
+
+func ParseIncidentEvent(data []byte) (e *IncidentEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(IncidentEvent)
+
+	// Fill Event header.
+	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
+		return nil, err
+	}
+
+	// Parse incident type.
+	u, err := buf.Uint16()
+	if err != nil {
+		return nil, err
+	}
+	e.Type = IncidentType(u)
+
+	// Parse incident message.
+	messageLen, err := buf.Uint8()
+	if err != nil {
+		return nil, err
+	}
+	if e.Message, err = buf.NextString(int(messageLen)); err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}
+
+func (e *IncidentEvent) String() string {
+	sb := new(strings.Builder)
+	sb.WriteString(e.EventHeader.String())
+
+	fmt.Fprintf(sb, "Type: %s\n", e.Type)
+	fmt.Fprintf(sb, "Message: %s\n", e.Message)
+
+	return sb.String()
 }

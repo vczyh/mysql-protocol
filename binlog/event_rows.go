@@ -212,7 +212,7 @@ func (e *TableMapEvent) parseColumnMetadata(buf *mysql.Buffer) error {
 			packet.MySQLTypeDatetime2,
 			packet.MySQLTypeBlob,
 			packet.MySQLTypeGeometry,
-			packet.MysSQLTypeJson:
+			packet.MySQLTypeJson:
 
 			// These types store a single byte.
 			column.Meta = uint64(metaData[pos])
@@ -756,6 +756,8 @@ func ParseRowsEvent(data []byte, fde *FormatDescriptionEvent, parser *Parser) (e
 	}
 	e.Flags = RowsFlag(u)
 
+	// TODO delete TableMap from parser map
+
 	// Parse extra data.
 	if postHeaderLen == 10 {
 		headerLen, err := buf.Uint16()
@@ -1089,9 +1091,9 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 
 	case packet.MySQLTypeNewDecimal:
 		// TODO parse decimal
-		//precision := int(meta >> 8)
-		//decimals := int(meta & 0xFF)
-		return nil, fmt.Errorf("unsuuport new decimal type")
+		precision := int(meta >> 8)
+		decimals := int(meta & 0xFF)
+		return buf.Decimal(precision, decimals)
 
 	case packet.MySQLTypeFloat:
 		u, err := buf.Uint32()
@@ -1176,6 +1178,8 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		if err != nil {
 			return nil, err
 		}
+
+		// On disk we store as unsigned number with offset.
 		intPart := int64(u) - 0x8000000000
 
 		var frac int64
@@ -1231,9 +1235,18 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 
 	case packet.MySQLTypeTime2:
 		// TODO parse
-		//var intPart ,frac int64
+
+		// On disk we convert from signed representation to unsigned
+		// representation using timeFIntOffset, so all values become binary comparable.
+		//var timeFIntOffset int64 = 0x800000
+
+		//var intPart, frac int64
 		//switch meta {
 		//case 0:
+		//	u, err := buf.BUint24()
+		//	intPart = int64(u) - timeFIntOffset
+		//
+		//case 1, 2:
 		//
 		//}
 		return nil, fmt.Errorf("todo parse time")
@@ -1279,7 +1292,8 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		}
 
 		return buf.Next(dataLen)
-	case packet.MysSQLTypeJson:
+
+	case packet.MySQLTypeJson:
 		// TODO parse
 		return nil, fmt.Errorf("todo parse time")
 

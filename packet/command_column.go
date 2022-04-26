@@ -38,7 +38,7 @@ const (
 	MySQLTypeTypedArray
 	MySQLTypeInvalid = iota + 0xde
 	MySQLTypeBool
-	MysSQLTypeJson
+	MySQLTypeJson
 	MySQLTypeNewDecimal
 	MySQLTypeEnum
 	MySQLTypeSet
@@ -99,7 +99,7 @@ func (t TableColumnType) String() string {
 		return "MYSQL_TYPE_INVALID"
 	case MySQLTypeBool:
 		return "MYSQL_TYPE_BOOL"
-	case MysSQLTypeJson:
+	case MySQLTypeJson:
 		return "MYSQL_TYPE_JSON"
 	case MySQLTypeNewDecimal:
 		return "MYSQL_TYPE_NEWDECIMAL"

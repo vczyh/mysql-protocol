@@ -44,6 +44,7 @@ const (
 	EventTypeXAPrepareLog
 	EventTypePartialUpdateRows
 	EventTypeTransactionPayload
+	EventTypeHeartbeatV2
 
 	// EventTypeEnumEnd is end marker, not event type.
 	EventTypeEnumEnd
@@ -62,7 +63,7 @@ func (t EventType) String() string {
 	case EventTypeRotate:
 		return "ROTATE_EVENT"
 	case EventTypeIntvar:
-		return "ROTATE_EVENT"
+		return "INTVAR_EVENT"
 	case EventTypeLoad:
 		return "LOAD_EVENT"
 	case EventTypeSlave:
@@ -133,6 +134,8 @@ func (t EventType) String() string {
 		return "PARTIAL_UPDATE_ROWS_EVENT"
 	case EventTypeTransactionPayload:
 		return "TRANSACTION_PAYLOAD_EVENT"
+	case EventTypeHeartbeatV2:
+		return "HEARTBEAT_EVENTv2"
 	default:
 		return "unknown event type"
 	}

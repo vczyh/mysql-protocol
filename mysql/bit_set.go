@@ -17,7 +17,6 @@ func NewBitSet(bitLen int) (*BitSet, error) {
 	}
 
 	b := new(BitSet)
-	fmt.Println((bitLen-1)>>shift + 1)
 	b.words = make([]uint64, (bitLen-1)>>shift+1)
 	return b, nil
 }
