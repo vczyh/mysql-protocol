@@ -14,12 +14,6 @@ var (
 	ErrColumnRowMismatch = errors.New("column num and row value num do not match")
 )
 
-//type ResultSet interface {
-//	Columns() []packet.Column
-//	Rows() []packet.Row
-//	WriteText(mysql.Conn) error
-//}
-
 type ResultSet struct {
 	columns []mysql.Column
 	rows    []mysql.Row
@@ -56,9 +50,9 @@ func NewSimpleResultSet(columnNames []string, rowValues [][]interface{}) (*Resul
 
 			now := column.Type
 			if i > 0 && now != bef {
-				if now == packet.MySQLTypeNull {
+				if now == flag.MySQLTypeNull {
 					column.Type = bef
-				} else if bef != packet.MySQLTypeNull && now != packet.MySQLTypeNull {
+				} else if bef != flag.MySQLTypeNull && now != flag.MySQLTypeNull {
 					return nil, fmt.Errorf("row value for same column type differ")
 				}
 			}
@@ -156,25 +150,27 @@ func (rs *ResultSet) textRowPackets() []*packet.TextResultSetRow {
 	return textRows
 }
 
-func fillColumnDefinition(val interface{}, column *mysql.Column) error {
-	column.CharSet = charset.Utf8mb40900AiCi
+func fillColumnDefinition(val interface{}, column *mysql.Column) (err error) {
+	if column.CharSet, err = charset.GetCollationByName(charset.UTF8MB40900AiCi); err != nil {
+		return err
+	}
 
 	switch val.(type) {
 	case int, int8, int16, int32, int64:
-		column.Type = packet.MySQLTypeLongLong
+		column.Type = flag.MySQLTypeLongLong
 		column.Flags |= flag.BinaryFlag
 	case uint, uint8, uint16, uint32, uint64:
-		column.Type = packet.MySQLTypeLongLong
+		column.Type = flag.MySQLTypeLongLong
 		column.Flags |= flag.UnsignedFlag | flag.BinaryFlag
 	case float32, float64:
-		column.Type = packet.MySQLTypeDouble
+		column.Type = flag.MySQLTypeDouble
 		column.Flags |= flag.BinaryFlag
 	case string, []byte:
-		column.Type = packet.MySQLTypeVarString
+		column.Type = flag.MySQLTypeVarString
 	case nil:
-		column.Type = packet.MySQLTypeNull
+		column.Type = flag.MySQLTypeNull
 	case time.Time:
-		column.Type = packet.MySQLTypeDatetime
+		column.Type = flag.MySQLTypeDatetime
 	default:
 		return fmt.Errorf("unsupported column value type %T", val)
 	}

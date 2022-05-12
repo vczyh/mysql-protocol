@@ -3,6 +3,8 @@ package binlog
 import (
 	"fmt"
 	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/core"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"github.com/vczyh/mysql-protocol/packet"
 	"math"
@@ -12,12 +14,14 @@ import (
 
 type TableMapEvent struct {
 	EventHeader
-	TableId          uint64
-	Flags            TableMapFlag
-	Database         string
-	Table            string
-	Columns          []Column
+	TableId  uint64
+	Flags    TableMapFlag
+	Database string
+	Table    string
+	Columns  []Column
+	// TODO delete  this?
 	OptionalMetadata []byte
+	JsonColumnCnt    int
 }
 
 type TableMapFlag uint16
@@ -31,8 +35,8 @@ const (
 type Column struct {
 	Index int
 
-	BinlogType   packet.TableColumnType
-	RealType     packet.TableColumnType
+	BinlogType   flag.TableColumnType
+	RealType     flag.TableColumnType
 	Nullable     bool
 	Meta         uint64
 	IsArray      bool
@@ -72,7 +76,7 @@ func (c *Column) HasCharset() bool {
 }
 
 func (c *Column) HasGeometryType() bool {
-	return c.RealType == packet.MySQLTypeGeometry
+	return c.RealType == flag.MySQLTypeGeometry
 }
 
 type OptionalMetadataFieldType uint8
@@ -161,7 +165,7 @@ func ParseTableMapEvent(data []byte, fde *FormatDescriptionEvent) (e *TableMapEv
 	}
 	for i, columnType := range columnTypes {
 		e.Columns[i].Index = i
-		e.Columns[i].BinlogType = packet.TableColumnType(columnType)
+		e.Columns[i].BinlogType = flag.TableColumnType(columnType)
 	}
 
 	if buf.Len() > 0 {
@@ -177,13 +181,21 @@ func ParseTableMapEvent(data []byte, fde *FormatDescriptionEvent) (e *TableMapEv
 		if err := e.parseNullable(buf); err != nil {
 			return nil, err
 		}
-
 	}
 
 	// Parse optional metadata.
 	if err := e.parseOptionalMetadata(buf); err != nil {
 		return nil, err
 	}
+
+	// Count the number of json columns.
+	cnt := 0
+	for _, column := range e.Columns {
+		if column.RealType == flag.MySQLTypeJson {
+			cnt++
+		}
+	}
+	e.JsonColumnCnt = cnt
 
 	return e, nil
 }
@@ -198,39 +210,39 @@ func (e *TableMapEvent) parseColumnMetadata(buf *mysql.Buffer) error {
 	for i := range e.Columns {
 		column := &e.Columns[i]
 
-		if column.BinlogType == packet.MySQLTypeTypedArray {
+		if column.BinlogType == flag.MySQLTypeTypedArray {
 			column.IsArray = true
-			column.BinlogType = packet.TableColumnType(metaData[pos])
+			column.BinlogType = flag.TableColumnType(metaData[pos])
 			pos++
 		}
 
 		switch column.BinlogType {
-		case packet.MySQLTypeFloat,
-			packet.MySQLTypeDouble,
-			packet.MySQLTypeTime2,
-			packet.MySQLTypeTimestamp2,
-			packet.MySQLTypeDatetime2,
-			packet.MySQLTypeBlob,
-			packet.MySQLTypeGeometry,
-			packet.MySQLTypeJson:
+		case flag.MySQLTypeFloat,
+			flag.MySQLTypeDouble,
+			flag.MySQLTypeTime2,
+			flag.MySQLTypeTimestamp2,
+			flag.MySQLTypeDatetime2,
+			flag.MySQLTypeBlob,
+			flag.MySQLTypeGeometry,
+			flag.MySQLTypeJson:
 
 			// These types store a single byte.
 			column.Meta = uint64(metaData[pos])
 			pos++
 
-		case packet.MySQLTypeString:
+		case flag.MySQLTypeString:
 			meta := uint64(metaData[pos]) << 8
 			meta += uint64(metaData[pos+1])
 			pos += 2
 			column.Meta = meta
 
-		case packet.MySQLTypeBit:
+		case flag.MySQLTypeBit:
 			meta := uint64(metaData[pos])
 			meta += uint64(metaData[pos+1]) << 8
 			pos += 2
 			column.Meta = meta
 
-		case packet.MySQLTypeVarchar:
+		case flag.MySQLTypeVarchar:
 			if column.IsArray {
 				// TODO replace method
 				column.Meta = packet.FixedLengthInteger.Uint64(metaData[pos : pos+3])
@@ -241,32 +253,32 @@ func (e *TableMapEvent) parseColumnMetadata(buf *mysql.Buffer) error {
 				pos += 2
 			}
 
-		case packet.MySQLTypeNewDecimal:
+		case flag.MySQLTypeNewDecimal:
 			meta := uint64(metaData[pos]) << 8
 			meta += uint64(metaData[pos+1])
 			pos += 2
 			column.Meta = meta
 
-		case packet.MySQLTypeDecimal,
-			packet.MySQLTypeTiny,
-			packet.MySQLTypeShort,
-			packet.MySQLTypeInt24,
-			packet.MySQLTypeLong,
-			packet.MySQLTypeLongLong,
-			packet.MySQLTypeTimestamp,
-			packet.MySQLTypeYear,
-			packet.MySQLTypeDate,
-			packet.MySQLTypeTime,
-			packet.MySQLTypeDatetime:
+		case flag.MySQLTypeDecimal,
+			flag.MySQLTypeTiny,
+			flag.MySQLTypeShort,
+			flag.MySQLTypeInt24,
+			flag.MySQLTypeLong,
+			flag.MySQLTypeLongLong,
+			flag.MySQLTypeTimestamp,
+			flag.MySQLTypeYear,
+			flag.MySQLTypeDate,
+			flag.MySQLTypeTime,
+			flag.MySQLTypeDatetime:
 
 			// These types have no meta.
 
-		case packet.MySQLTypeEnum,
-			packet.MySQLTypeSet,
-			packet.MySQLTypeTinyBlob,
-			packet.MySQLTypeMediumBlob,
-			packet.MySQLTypeLongBlob,
-			packet.MySQLTypeVarString:
+		case flag.MySQLTypeEnum,
+			flag.MySQLTypeSet,
+			flag.MySQLTypeTinyBlob,
+			flag.MySQLTypeMediumBlob,
+			flag.MySQLTypeLongBlob,
+			flag.MySQLTypeVarString:
 
 			// These types are not among binlog types.
 			return fmt.Errorf("unexpected column binlog type: %s", column.BinlogType)
@@ -281,9 +293,9 @@ func (e *TableMapEvent) parseRealType() {
 		column := &e.Columns[i]
 
 		switch column.BinlogType {
-		case packet.MySQLTypeString:
+		case flag.MySQLTypeString:
 			column.RealType = column.BinlogType
-			if t := packet.TableColumnType(column.Meta >> 8); isEnumSetType(t) {
+			if t := flag.TableColumnType(column.Meta >> 8); isEnumSetType(t) {
 				column.RealType = t
 			}
 		default:
@@ -517,7 +529,7 @@ func (e *TableMapEvent) parseEnumSetStrValue(buf *mysql.Buffer, length int, isEn
 			return ErrInvalidData
 		}
 
-		if isEnum && column.RealType == packet.MySQLTypeEnum || !isEnum && column.RealType == packet.MySQLTypeSet {
+		if isEnum && column.RealType == flag.MySQLTypeEnum || !isEnum && column.RealType == flag.MySQLTypeSet {
 			e.Columns[i].EnumSetValues = columnValues[index]
 			index++
 		}
@@ -544,7 +556,7 @@ func (e *TableMapEvent) parseGeometryType(buf *mysql.Buffer, length int) error {
 			return ErrInvalidData
 		}
 
-		if column.RealType == packet.MySQLTypeGeometry {
+		if column.RealType == flag.MySQLTypeGeometry {
 			e.Columns[i].GeometryType = GeometryType(types[index])
 			index++
 		}
@@ -678,8 +690,8 @@ type RowsEvent struct {
 	ExtraSourcePartitionId uint16
 
 	ColumnCnt          uint64
-	ColumnsBeforeImage *mysql.BitSet
-	ColumnsAfterImage  *mysql.BitSet
+	ColumnsBeforeImage *core.BitSet
+	ColumnsAfterImage  *core.BitSet
 
 	Rows []Row
 }
@@ -968,13 +980,29 @@ func (e *RowsEvent) String() string {
 	return sb.String()
 }
 
-func (e *RowsEvent) parseRow(buf *mysql.Buffer, isUpdateAfter bool) error {
+func (e *RowsEvent) parseRow(buf *mysql.Buffer, isUpdateAfter bool) (err error) {
 	columnBits := e.ColumnsBeforeImage
 	if isUpdateAfter {
 		columnBits = e.ColumnsAfterImage
 	}
 
-	// TODO PARTIAL_JSON_UPDATES
+	// Read value_options if this is AI for EventTypePartialUpdateRows.
+	var valueOptions flag.BinlogRowValueOptions
+	var partialBits *core.BitSet
+	if e.EventType == EventTypePartialUpdateRows && isUpdateAfter {
+		u64, err := buf.LengthEncodedUint64()
+		if err != nil {
+			return err
+		}
+		valueOptions = flag.BinlogRowValueOptions(u64)
+
+		// Store JSON updates in partial form.
+		if valueOptions&flag.BinlogRowValueOptionPartialJsonUpdates != 0 {
+			if partialBits, err = buf.CreateBitmap(e.Table.JsonColumnCnt); err != nil {
+				return err
+			}
+		}
+	}
 
 	nullBits, err := buf.CreateBitmap(columnBits.Count())
 	if err != nil {
@@ -983,20 +1011,24 @@ func (e *RowsEvent) parseRow(buf *mysql.Buffer, isUpdateAfter bool) error {
 
 	var row Row
 	index := 0
+	partialIndex := 0
 	for i := 0; i < int(e.ColumnCnt); i++ {
 		if !columnBits.Get(i) {
 			continue
 		}
 
-		cv := ColumnValue{ColumnIndex: i}
+		isPartial := valueOptions&flag.BinlogRowValueOptionPartialJsonUpdates != 0 && isUpdateAfter &&
+			e.Table.Columns[i].RealType == flag.MySQLTypeJson && partialBits.Get(partialIndex)
+		partialIndex++
 
+		cv := ColumnValue{ColumnIndex: i}
 		isNull := nullBits.Get(index)
 		index++
 
 		if isNull {
 			cv.IsNull = true
 		} else {
-			value, err := e.parseColumnValue(buf, i)
+			value, err := e.parseColumnValue(buf, i, isPartial)
 			if err != nil {
 				return err
 			}
@@ -1009,7 +1041,7 @@ func (e *RowsEvent) parseRow(buf *mysql.Buffer, isUpdateAfter bool) error {
 	return nil
 }
 
-func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{}, error) {
+func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int, isPartial bool) (interface{}, error) {
 	column := e.Table.Columns[index]
 
 	realType := column.RealType
@@ -1021,7 +1053,7 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 	}
 
 	var length int
-	if realType == packet.MySQLTypeVarString {
+	if realType == flag.MySQLTypeString {
 		if meta >= 256 {
 			byte0 := uint8(meta >> 8)
 			byte1 := uint8(meta & 0xff)
@@ -1039,7 +1071,8 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 	}
 
 	switch realType {
-	case packet.MySQLTypeLong:
+	case flag.MySQLTypeLong:
+		// TODO test
 		u, err := buf.Uint32()
 		if err != nil {
 			return nil, err
@@ -1049,7 +1082,8 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		}
 		return int32(u), nil
 
-	case packet.MySQLTypeTiny:
+	case flag.MySQLTypeTiny:
+		// TODO test
 		u, err := buf.Uint8()
 		if err != nil {
 			return nil, err
@@ -1059,7 +1093,8 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		}
 		return int8(u), nil
 
-	case packet.MySQLTypeShort:
+	case flag.MySQLTypeShort:
+		// TODO test
 		u, err := buf.Uint16()
 		if err != nil {
 			return nil, err
@@ -1069,7 +1104,8 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		}
 		return int16(u), nil
 
-	case packet.MySQLTypeInt24:
+	case flag.MySQLTypeInt24:
+		// TODO test
 		u, err := buf.Uint24()
 		if err != nil {
 			return nil, err
@@ -1079,7 +1115,8 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		}
 		return int32(u), nil
 
-	case packet.MySQLTypeLongLong:
+	case flag.MySQLTypeLongLong:
+		// TODO test
 		u, err := buf.Uint64()
 		if err != nil {
 			return nil, err
@@ -1089,40 +1126,44 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		}
 		return int64(u), nil
 
-	case packet.MySQLTypeNewDecimal:
-		// TODO parse decimal
+	case flag.MySQLTypeNewDecimal:
 		precision := int(meta >> 8)
 		decimals := int(meta & 0xFF)
 		return buf.Decimal(precision, decimals)
 
-	case packet.MySQLTypeFloat:
+	case flag.MySQLTypeFloat:
+		// TODO test
 		u, err := buf.Uint32()
 		if err != nil {
 			return nil, err
 		}
 		return math.Float32frombits(u), nil
 
-	case packet.MySQLTypeDouble:
+	case flag.MySQLTypeDouble:
+		// TODO test
 		u, err := buf.Uint64()
 		if err != nil {
 			return nil, err
 		}
 		return math.Float64frombits(u), nil
 
-	case packet.MySQLTypeBit:
+	case flag.MySQLTypeBit:
+		// TODO test
 		// TODO convert to int?
 		bitNum := ((meta >> 8) * 8) + (meta & 0xFF)
 		length = int((bitNum + 7) / 8)
 		return buf.Next(length)
 
-	case packet.MySQLTypeTimestamp:
+	case flag.MySQLTypeTimestamp:
+		// TODO test
 		sec, err := buf.Uint32()
 		if err != nil {
 			return nil, err
 		}
-		return mysql.NewTimestampUnix(int64(sec)*1e6, e.Location), nil
+		return core.NewTimestampUnix(int64(sec)*1e6, e.Location), nil
 
-	case packet.MySQLTypeTimestamp2:
+	case flag.MySQLTypeTimestamp2:
+		// TODO test
 		sec, err := buf.BUint32()
 		if err != nil {
 			return nil, err
@@ -1151,12 +1192,13 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 			}
 			usec = int64(u)
 		default:
-			return nil, fmt.Errorf("invalid meta %d for %s", meta, packet.MySQLTypeTimestamp2)
+			return nil, fmt.Errorf("invalid meta %d for %s", meta, flag.MySQLTypeTimestamp2)
 		}
 
-		return mysql.NewTimestampUnix(int64(sec)*1e6+usec, e.Location), nil
+		return core.NewTimestampUnix(int64(sec)*1e6+usec, e.Location), nil
 
-	case packet.MySQLTypeDatetime:
+	case flag.MySQLTypeDatetime:
+		// TODO test
 		i64, err := buf.Uint64()
 		if err != nil {
 			return nil, err
@@ -1165,7 +1207,7 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		d := i64 / 1000000
 		t := i64 % 1000000
 
-		return mysql.NewDateTime(
+		return core.NewDateTime(
 			int(d/10000),
 			int((d%10000)/100),
 			int(d%100),
@@ -1173,7 +1215,8 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 			int((t%10000)/100),
 			int(t%100), 0, e.Location), nil
 
-	case packet.MySQLTypeDatetime2:
+	case flag.MySQLTypeDatetime2:
+		// TODO test
 		u, err := buf.BUint40()
 		if err != nil {
 			return nil, err
@@ -1205,7 +1248,7 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 			}
 			frac = int64(u)
 		default:
-			return nil, fmt.Errorf("invalid meta %d for %s", meta, packet.MySQLTypeDatetime2)
+			return nil, fmt.Errorf("invalid meta %d for %s", meta, flag.MySQLTypeDatetime2)
 		}
 
 		ymd := intPart >> 17
@@ -1220,62 +1263,213 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 		minute := (hms >> 6) % (1 << 6)
 		hour := hms >> 12
 
-		return mysql.NewDateTime(int(year), int(month), int(day), int(hour), int(minute), int(second), int(frac), e.Location), nil
+		return core.NewDateTime(int(year), int(month), int(day), int(hour), int(minute), int(second), int(frac), e.Location), nil
 
-	case packet.MySQLTypeTime:
+	case flag.MySQLTypeTime:
+		// TODO test
 		i32, err := buf.Uint24()
 		if err != nil {
 			return nil, err
 		}
 
-		return mysql.NewTime(false,
+		return core.NewTime(false,
 			int(i32/10000),
 			int((i32%10000)/100),
 			int(i32%100), 0), nil
 
-	case packet.MySQLTypeTime2:
+	case flag.MySQLTypeTime2:
+		// TODO test
 		// TODO parse
 
 		// On disk we convert from signed representation to unsigned
 		// representation using timeFIntOffset, so all values become binary comparable.
-		//var timeFIntOffset int64 = 0x800000
+		var timeFIntOffset int64 = 0x800000
 
-		//var intPart, frac int64
-		//switch meta {
-		//case 0:
-		//	u, err := buf.BUint24()
-		//	intPart = int64(u) - timeFIntOffset
-		//
-		//case 1, 2:
-		//
-		//}
-		return nil, fmt.Errorf("todo parse time")
+		var intPart, frac, tmp int64
+		switch meta {
+		case 0:
+			u, err := buf.BUint24()
+			if err != nil {
+				return nil, err
+			}
+			intPart = int64(u) - timeFIntOffset
+			tmp = intPart << 24
+		case 1, 2:
+			u, err := buf.BUint24()
+			if err != nil {
+				return nil, err
+			}
+			intPart = int64(u) - timeFIntOffset
+			u2, err := buf.Uint8()
+			if err != nil {
+				return nil, err
+			}
+			frac = int64(u2)
+			if intPart < 0 && frac > 0 {
+				/*
+				   Negative values are stored with
+				   reverse fractional part order,
+				   for binary sort compatibility.
 
-	case packet.MySQLTypeDate, packet.MySQLTypeNewDate:
-		// TODO parse
-		return nil, fmt.Errorf("todo parse time")
+				    Disk value  intpart frac   Time value   Memory value
+				    800000.00    0      0      00:00:00.00  0000000000.000000
+				    7FFFFF.FF   -1      255   -00:00:00.01  FFFFFFFFFF.FFD8F0
+				    7FFFFF.9D   -1      99    -00:00:00.99  FFFFFFFFFF.F0E4D0
+				    7FFFFF.00   -1      0     -00:00:01.00  FFFFFFFFFF.000000
+				    7FFFFE.FF   -1      255   -00:00:01.01  FFFFFFFFFE.FFD8F0
+				    7FFFFE.F6   -2      246   -00:00:01.10  FFFFFFFFFE.FE7960
 
-	case packet.MySQLTypeYear:
-		// TODO parse
-		return nil, fmt.Errorf("todo parse time")
+				    Formula to convert fractional part from disk format
+				    (now stored in "frac" variable) to absolute value: "0x100 - frac".
+				    To reconstruct in-memory value, we shift
+				    to the next integer value and then substruct fractional part.
+				*/
 
-	case packet.MySQLTypeEnum:
-		// TODO parse
-		return nil, fmt.Errorf("todo parse time")
+				// Shift to the next integer value
+				intPart++
+				frac -= 0x100
+			}
+			tmp = intPart<<24 + frac*10000
+		case 3, 4:
+			u, err := buf.BUint24()
+			if err != nil {
+				return nil, err
+			}
+			intPart = int64(u) - timeFIntOffset
+			u2, err := buf.BUint16()
+			if err != nil {
+				return nil, err
+			}
+			frac = int64(u2)
+			if intPart < 0 && frac > 0 {
+				// Fix reverse fractional part order: "0x10000 - frac".
+				// See comments for FSP=1 and FSP=2 above.
 
-	case packet.MySQLTypeSet:
-		// TODO parse
-		return nil, fmt.Errorf("todo parse time")
-
-	case packet.MySQLTypeBlob:
-		// TODO parse
-		return nil, fmt.Errorf("todo parse time")
-
-	case packet.MySQLTypeVarchar, packet.MySQLTypeVarString, packet.MySQLTypeString:
-		if realType != packet.MySQLTypeString {
-			length = int(meta)
+				// Shift to the next integer value
+				intPart++
+				frac -= 0x10000
+			}
+			tmp = intPart<<24 + frac*100
+		case 5, 6:
+			u, err := buf.BUint48()
+			if err != nil {
+				return nil, err
+			}
+			intPart = int64(u) - timeFIntOffset
+			tmp = intPart
+		default:
+			return nil, fmt.Errorf("invalid meta %d for %s", meta, flag.MySQLTypeTime2)
 		}
 
+		var neg bool
+		if tmp < 0 {
+			neg = true
+			tmp = -tmp
+		}
+
+		hms := tmp >> 24
+		hour := (hms >> 12) % (1 << 10)
+		minute := (hms >> 6) % (1 << 6)
+		second := hms % (1 << 6)
+		usec := tmp % (1 << 24)
+
+		return core.NewTime(neg, int(hour), int(minute), int(second), int(usec)), nil
+
+	// todo only MySQLTypeDate in binlog, delete MySQLTypeNewDate or change realType to MySQLTypeNewDate?
+	case flag.MySQLTypeDate, flag.MySQLTypeNewDate:
+		// TODO test
+		u32, err := buf.Uint24()
+		if err != nil {
+			return nil, err
+		}
+
+		year := u32 >> 9
+		month := u32 >> 5 % 16
+		day := u32 % 32
+
+		return core.NewDate(int(year), int(month), int(day)), nil
+
+	case flag.MySQLTypeYear:
+		// TODO test
+		u8, err := buf.Uint8()
+		if err != nil {
+			return nil, err
+		}
+		return uint16(u8) + 1900, nil
+
+	case flag.MySQLTypeEnum:
+		// TODO test
+		switch meta & 0xff {
+		case 1:
+			return buf.Uint8()
+		case 2:
+			return buf.Uint16()
+		default:
+			return nil, fmt.Errorf("unknown ENUM packlen=%d", meta&0xff)
+		}
+
+	case flag.MySQLTypeSet:
+		// TODO test
+		switch meta & 0xff {
+		case 1:
+			return buf.Uint8()
+		case 2:
+			return buf.Uint16()
+		case 3:
+			return buf.Uint24()
+		case 4:
+			return buf.Uint32()
+		case 5:
+			return buf.Uint40()
+		case 6:
+			return buf.Uint48()
+		case 7:
+			return buf.Uint56()
+		case 8:
+			return buf.Uint64()
+		default:
+			return nil, fmt.Errorf("unknown SET packlen=%d", meta&0xff)
+		}
+
+	case flag.MySQLTypeBlob:
+		// TODO test
+		var l int
+		switch meta {
+		case 1:
+			// TINYBLOB/TINYTEXT
+			u8, err := buf.Uint8()
+			if err != nil {
+				return nil, err
+			}
+			l = int(u8)
+		case 2:
+			// BLOB/TEXT
+			u16, err := buf.Uint16()
+			if err != nil {
+				return nil, err
+			}
+			l = int(u16)
+		case 3:
+			// MEDIUMBLOB/MEDIUMTEXT
+			u24, err := buf.Uint24()
+			if err != nil {
+				return nil, err
+			}
+			l = int(u24)
+		case 4:
+			// LONGBLOB/LONGTEXT
+			u32, err := buf.Uint32()
+			if err != nil {
+				return nil, err
+			}
+			l = int(u32)
+		}
+
+		return buf.Next(l)
+
+	case flag.MySQLTypeVarchar, flag.MySQLTypeVarString:
+		// TODO test
+		length = int(meta)
 		var dataLen int
 		if length < 256 {
 			u, err := buf.Uint8()
@@ -1293,11 +1487,60 @@ func (e *RowsEvent) parseColumnValue(buf *mysql.Buffer, index int) (interface{},
 
 		return buf.Next(dataLen)
 
-	case packet.MySQLTypeJson:
-		// TODO parse
-		return nil, fmt.Errorf("todo parse time")
+	case flag.MySQLTypeString:
+		var dataLen int
+		if length < 256 {
+			u, err := buf.Uint8()
+			if err != nil {
+				return nil, err
+			}
+			dataLen = int(u)
+		} else {
+			u, err := buf.Uint16()
+			if err != nil {
+				return nil, err
+			}
+			dataLen = int(u)
+		}
 
-	case packet.MySQLTypeGeometry:
+		return buf.Next(dataLen)
+
+	case flag.MySQLTypeJson:
+		// TODO test
+
+		// TODO meta must be 4?
+		if meta != 4 {
+			return nil, fmt.Errorf("require json meta=4")
+		}
+		u32, err := buf.Uint32()
+		if err != nil {
+			return nil, err
+		}
+		length = int(u32)
+
+		data := buf.Buffer()
+		if _, err := buf.Next(length); err != nil {
+			return nil, err
+		}
+
+		if isPartial {
+			// TODO json diff
+			panic("TODO json diff")
+		} else {
+			if length == 0 {
+				return "", nil
+			}
+			jsonValue, err := ParseBinary(data, length)
+			if err != nil {
+				return nil, err
+			}
+			sb := new(strings.Builder)
+			err = jsonValue.WriteStringBuilder(sb, e.Location)
+			return sb.String(), err
+		}
+
+	case flag.MySQLTypeGeometry:
+		// TODO test
 		// TODO parse
 		return nil, fmt.Errorf("todo parse time")
 

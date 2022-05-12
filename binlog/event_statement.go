@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/vczyh/mysql-protocol/charset"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
 	"strings"
 	"time"
@@ -22,8 +23,8 @@ type QueryEvent struct {
 	//StatusVarsLen uint16
 	//StatusVars []byte
 
-	Flags2                 Option
-	SQLMode                SQLMode
+	Flags2                 flag.Option
+	SQLMode                flag.SQLMode
 	Catalog                string
 	AutoIncrementIncrement uint16
 	AutoIncrementOffset    uint16
@@ -41,7 +42,7 @@ type QueryEvent struct {
 	User                       string
 	Host                       string
 	MtsAccessedDBNames         []string
-	ExplicitDefaultsTS         Ternary
+	ExplicitDefaultsTS         flag.Ternary
 	DDLXid                     uint64
 	DefaultCollationForUtf8mb4 *charset.Collation
 	SQLRequirePrimaryKey       uint8
@@ -105,22 +106,22 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 			return nil, err
 		}
 
-		switch QueryEventStatusVars(b) {
-		case QueryStatusVarsFlags2:
+		switch flag.QueryEventStatusVars(b) {
+		case flag.QueryStatusVarsFlags2:
 			u, err := buf.Uint32()
 			if err != nil {
 				return nil, err
 			}
-			e.Flags2 = Option(u)
+			e.Flags2 = flag.Option(u)
 
-		case QueryStatusVarsSQLMode:
+		case flag.QueryStatusVarsSQLMode:
 			u, err := buf.Uint64()
 			if err != nil {
 				return nil, err
 			}
-			e.SQLMode = SQLMode(u)
+			e.SQLMode = flag.SQLMode(u)
 
-		case QueryStatusVarsCatalog:
+		case flag.QueryStatusVarsCatalog:
 			catalogLen, err := buf.Uint8()
 			if err != nil {
 				return nil, err
@@ -135,7 +136,7 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				_, _ = buf.Next(1)
 			}
 
-		case QueryStatusVarsAutoIncrement:
+		case flag.QueryStatusVarsAutoIncrement:
 			if e.AutoIncrementIncrement, err = buf.Uint16(); err != nil {
 				return nil, err
 			}
@@ -143,7 +144,7 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				return nil, err
 			}
 
-		case QueryStatusVarsCharset:
+		case flag.QueryStatusVarsCharset:
 			collationClientId, err := buf.Uint16()
 			if err != nil {
 				return nil, err
@@ -172,7 +173,7 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				return nil, err
 			}
 
-		case QueryStatusVarsTimeZone:
+		case flag.QueryStatusVarsTimeZone:
 			timeZoneLen, err := buf.Uint8()
 			if err != nil {
 				return nil, err
@@ -185,7 +186,7 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				e.TimeZone = string(next)
 			}
 
-		case QueryStatusVarsCatalogNz:
+		case flag.QueryStatusVarsCatalogNz:
 			catalogLen, err := buf.Uint8()
 			if err != nil {
 				return nil, err
@@ -198,12 +199,12 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				e.Catalog = string(next)
 			}
 
-		case QueryStatusVarsLcTimeNames:
+		case flag.QueryStatusVarsLcTimeNames:
 			if e.LcTimeNamesNum, err = buf.Uint16(); err != nil {
 				return nil, err
 			}
 
-		case QueryStatusVarsCharsetDatabase:
+		case flag.QueryStatusVarsCharsetDatabase:
 			collationDatabaseId, err := buf.Uint16()
 			if err != nil {
 				return nil, err
@@ -212,17 +213,17 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				return nil, err
 			}
 
-		case QueryStatusVarsTableMapForUpdate:
+		case flag.QueryStatusVarsTableMapForUpdate:
 			if e.TableMapForUpdate, err = buf.Uint64(); err != nil {
 				return nil, err
 			}
 
-		case QueryStatusVarsMasterDataWritten:
+		case flag.QueryStatusVarsMasterDataWritten:
 			if e.MasterDataWritten, err = buf.Uint32(); err != nil {
 				return nil, err
 			}
 
-		case QueryStatusVarsInvoker:
+		case flag.QueryStatusVarsInvoker:
 			userLen, err := buf.Uint8()
 			if err != nil {
 				return nil, err
@@ -243,7 +244,7 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				}
 			}
 
-		case QueryStatusVarsUpdatedDBNames:
+		case flag.QueryStatusVarsUpdatedDBNames:
 			mtsAccessedDBs, err := buf.Uint8()
 			if err != nil {
 				return nil, err
@@ -256,28 +257,28 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				}
 			}
 
-		case QueryStatusVarsMicroseconds:
+		case flag.QueryStatusVarsMicroseconds:
 			if e.EventHeader.Timestamp, err = buf.Uint24(); err != nil {
 				return nil, err
 			}
 
-		case QueryStatusVarsExplicitDefaultsForTimestamp:
+		case flag.QueryStatusVarsExplicitDefaultsForTimestamp:
 			val, err := buf.Uint8()
 			if err != nil {
 				return nil, err
 			}
 
-			e.ExplicitDefaultsTS = TernaryOff
+			e.ExplicitDefaultsTS = flag.TernaryOff
 			if val != 0 {
-				e.ExplicitDefaultsTS = TernaryOn
+				e.ExplicitDefaultsTS = flag.TernaryOn
 			}
 
-		case QueryStatusVarsDDLLoggedWithXid:
+		case flag.QueryStatusVarsDDLLoggedWithXid:
 			if e.DDLXid, err = buf.Uint64(); err != nil {
 				return nil, err
 			}
 
-		case QueryStatusVarsDefaultCollationForUtf8mb4:
+		case flag.QueryStatusVarsDefaultCollationForUtf8mb4:
 			defaultCollationForUtf8mb4Id, err := buf.Uint16()
 			if err != nil {
 				return nil, err
@@ -287,12 +288,12 @@ func ParseQueryEvent(data []byte, fde *FormatDescriptionEvent) (e *QueryEvent, e
 				return nil, err
 			}
 
-		case QueryStatusVarsSQLRequirePrimaryKey:
+		case flag.QueryStatusVarsSQLRequirePrimaryKey:
 			if e.SQLRequirePrimaryKey, err = buf.Uint8(); err != nil {
 				return nil, err
 			}
 
-		case QueryStatusVarsDefaultTableEncryption:
+		case flag.QueryStatusVarsDefaultTableEncryption:
 			if e.DefaultTableEncryption, err = buf.Uint8(); err != nil {
 				return nil, err
 			}
@@ -325,10 +326,10 @@ func (e *QueryEvent) String() string {
 	fmt.Fprintf(sb, "Error code: %d\n", e.ErrCode)
 
 	queryOptions := make([]string, 4)
-	queryOptions[0] = fmt.Sprintf("foreign_key_checks=%d", boolToInt(e.Flags2&OptionNoForeignKeyChecks == 0))
-	queryOptions[1] = fmt.Sprintf("sql_auto_is_null=%d", boolToInt(e.Flags2&OptionAutoIsNull > 0))
-	queryOptions[2] = fmt.Sprintf("unique_checks=%d", boolToInt(e.Flags2&OptionRelaxedUniqueChecks == 0))
-	queryOptions[3] = fmt.Sprintf("autocommit=%d", boolToInt(e.Flags2&OptionNotAutocommit == 0))
+	queryOptions[0] = fmt.Sprintf("foreign_key_checks=%d", boolToInt(e.Flags2&flag.OptionNoForeignKeyChecks == 0))
+	queryOptions[1] = fmt.Sprintf("sql_auto_is_null=%d", boolToInt(e.Flags2&flag.OptionAutoIsNull > 0))
+	queryOptions[2] = fmt.Sprintf("unique_checks=%d", boolToInt(e.Flags2&flag.OptionRelaxedUniqueChecks == 0))
+	queryOptions[3] = fmt.Sprintf("autocommit=%d", boolToInt(e.Flags2&flag.OptionNotAutocommit == 0))
 	fmt.Fprintf(sb, "SET %s\n", strings.Join(queryOptions, ", "))
 
 	fmt.Fprintf(sb, "SET sql_mode=%d\n", e.SQLMode)

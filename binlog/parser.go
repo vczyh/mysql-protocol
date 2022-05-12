@@ -5,8 +5,7 @@ import (
 )
 
 type Parser struct {
-	fde *FormatDescriptionEvent
-
+	fde      *FormatDescriptionEvent
 	tableMap map[uint64]*TableMapEvent
 }
 
@@ -48,6 +47,11 @@ func (p *Parser) ParseEvent(data []byte) (Event, error) {
 		return ParseIntVarEvent(b)
 	case EventTypeIncident:
 		return ParseIncidentEvent(b)
+	case EventTypeHeartbeat:
+		return ParseHeartbeatEvent(b)
+	case EventTypeHeartbeatV2:
+		// TODO delete
+		fmt.Println("heartbeat event")
 	}
 
 	if p.fde == nil {
@@ -64,11 +68,11 @@ func (p *Parser) ParseEvent(data []byte) (Event, error) {
 		}
 		p.tableMap[table.TableId] = table
 		return table, err
-	case EventTypeWriteRowsV2, EventTypeDeleteRowsV2, EventTypeUpdateRowsV2:
+	case EventTypeWriteRowsV2, EventTypeDeleteRowsV2, EventTypeUpdateRowsV2, EventTypePartialUpdateRows:
 		// TODO partial event
 		return ParseRowsEvent(b, p.fde, p)
 	default:
-		return nil, fmt.Errorf("unsupported event type")
+		return nil, fmt.Errorf("unsupported event type %s", eventType)
 	}
 }
 

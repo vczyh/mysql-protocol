@@ -1,10 +1,13 @@
 package packet
 
-import "testing"
+import (
+	"github.com/vczyh/mysql-protocol/flag"
+	"testing"
+)
 
 func TestTableColumnType(t *testing.T) {
-	t.Log(uint8(MySQLTypeInvalid))
-	t.Log(uint8(MySQLTypeJson))
-	t.Log(uint8(MySQLTypeGeometry))
-	t.Log(uint8(MySQLTypeString))
+	t.Log(uint8(flag.MySQLTypeInvalid))
+	t.Log(uint8(flag.MySQLTypeJson))
+	t.Log(uint8(flag.MySQLTypeGeometry))
+	t.Log(uint8(flag.MySQLTypeString))
 }

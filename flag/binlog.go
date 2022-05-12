@@ -1,22 +1,22 @@
-package binlog
+package flag
 
 import "strings"
 
-type DumpFlag uint16
+type BinlogDumpFlag uint16
 
 const (
-	DumpFlagNonBlock DumpFlag = 1 << iota
-	DumpFlagThroughPosition
-	DumpFlagThroughGTID
+	BinlogDumpFlagNonBlock BinlogDumpFlag = 1 << iota
+	BinlogDumpFlagThroughPosition
+	BinlogDumpFlagThroughGTID
 )
 
-func (b DumpFlag) String() string {
+func (b BinlogDumpFlag) String() string {
 	switch b {
-	case DumpFlagNonBlock:
+	case BinlogDumpFlagNonBlock:
 		return "BINLOG_DUMP_NON_BLOCK"
-	case DumpFlagThroughPosition:
+	case BinlogDumpFlagThroughPosition:
 		return "BINLOG_THROUGH_POSITION"
-	case DumpFlagThroughGTID:
+	case BinlogDumpFlagThroughGTID:
 		return "BINLOG_THROUGH_GTID"
 	default:
 		return "unknown binlog flag"

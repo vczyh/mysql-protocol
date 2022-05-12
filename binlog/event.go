@@ -3,8 +3,8 @@ package binlog
 import (
 	"errors"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/mysql"
-	"github.com/vczyh/mysql-protocol/packet"
 	"strings"
 	"time"
 )
@@ -24,7 +24,7 @@ type EventHeader struct {
 	ServerId  uint32
 	EventSize uint32
 	LogPos    uint32
-	Flags     EventFlag
+	Flags     flag.EventFlag
 }
 
 //func (h *EventHeader) Dump(capabilities flag.Capability) ([]byte, error) {
@@ -78,7 +78,7 @@ func FillEventHeader(header *EventHeader, buf *mysql.Buffer) (err error) {
 	if err != nil {
 		return err
 	}
-	header.Flags = EventFlag(u)
+	header.Flags = flag.EventFlag(u)
 
 	return nil
 }
@@ -90,42 +90,41 @@ func boolToInt(b bool) uint8 {
 	return 0
 }
 
-func hasSignednessType(t packet.TableColumnType) bool {
+func hasSignednessType(t flag.TableColumnType) bool {
 	switch t {
-	case packet.MySQLTypeTiny,
-		packet.MySQLTypeShort,
-		packet.MySQLTypeInt24,
-		packet.MySQLTypeLong,
-		packet.MySQLTypeLongLong,
-		packet.MySQLTypeYear,
-		packet.MySQLTypeFloat,
-		packet.MySQLTypeDouble,
+	case flag.MySQLTypeTiny,
+		flag.MySQLTypeShort,
+		flag.MySQLTypeInt24,
+		flag.MySQLTypeLong,
+		flag.MySQLTypeLongLong,
+		flag.MySQLTypeYear,
+		flag.MySQLTypeFloat,
+		flag.MySQLTypeDouble,
 		// TODO delete it?
-		packet.MySQLTypeDecimal,
-		packet.MySQLTypeNewDecimal:
+		flag.MySQLTypeDecimal,
+		flag.MySQLTypeNewDecimal:
 		return true
 	default:
 		return false
 	}
 }
 
-func isCharacterType(t packet.TableColumnType) bool {
+func isCharacterType(t flag.TableColumnType) bool {
 	switch t {
-	case packet.MySQLTypeString,
+	case flag.MySQLTypeString,
 		// TODO delete it?
-		packet.MySQLTypeVarString,
-		packet.MySQLTypeVarchar,
-		packet.MySQLTypeBlob:
+		flag.MySQLTypeVarString,
+		flag.MySQLTypeVarchar,
+		flag.MySQLTypeBlob:
 		return true
 	default:
 		return false
 	}
 }
 
-func isEnumSetType(t packet.TableColumnType) bool {
+func isEnumSetType(t flag.TableColumnType) bool {
 	switch t {
-	case packet.MySQLTypeEnum,
-		packet.MySQLTypeSet:
+	case flag.MySQLTypeEnum, flag.MySQLTypeSet:
 		return true
 	default:
 		return false

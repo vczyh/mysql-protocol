@@ -12,7 +12,8 @@ func main() {
 		replica.WithPort(3306),
 		replica.WithUser("root"),
 		replica.WithPassword("Unicloud@1221"),
-		replica.WithReportHost("zzzz"),
+		replica.WithReportHost("node1"),
+		//replica.WithSourceHeartbeatPeriod(time.Second*5),
 	)
 
 	//s, err := r.StartDump("mysql-bin.000029", 4)

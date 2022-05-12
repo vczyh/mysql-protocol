@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/vczyh/mysql-protocol/core"
 	"github.com/vczyh/mysql-protocol/packet"
 	"io"
 	"math"
@@ -28,6 +29,10 @@ type Buffer struct {
 
 func NewBuffer(p []byte) *Buffer {
 	return &Buffer{buf: bytes.NewBuffer(p)}
+}
+
+func (b *Buffer) Buffer() *Buffer {
+	return NewBuffer(b.Bytes())
 }
 
 // Uint8 reads one byte from the buffer, and returns uint8.
@@ -156,6 +161,17 @@ func (b *Buffer) Uint48() (uint64, error) {
 	return binary.LittleEndian.Uint64(dst), nil
 }
 
+// BUint48 reads 6 bytes from the buffer, and returns big endian uint64.
+func (b *Buffer) BUint48() (uint64, error) {
+	p, err := b.Next(6)
+	if err != nil {
+		return 0, err
+	}
+	dst := make([]byte, 8)
+	copy(dst, p)
+	return binary.BigEndian.Uint64(dst), nil
+}
+
 // Uint56 reads 7 bytes from the buffer, and returns little endian uint64.
 func (b *Buffer) Uint56() (uint64, error) {
 	p, err := b.Next(7)
@@ -230,9 +246,9 @@ func (b *Buffer) LengthEncodedString() (string, error) {
 	return string(data), nil
 }
 
-// CreateBitmap reads (cnt+7)/8 bytes and returns BitSet.
-func (b *Buffer) CreateBitmap(cnt int) (*BitSet, error) {
-	bs, err := NewBitSet(cnt)
+// CreateBitmap reads (cnt+7)/8 bytes and returns *core.BitSet.
+func (b *Buffer) CreateBitmap(cnt int) (*core.BitSet, error) {
+	bs, err := core.NewBitSet(cnt)
 	if err != nil {
 		return nil, err
 	}

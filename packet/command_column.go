@@ -10,122 +10,6 @@ import (
 	"time"
 )
 
-type TableColumnType uint8
-
-// https://dev.mysql.com/doc/internals/en/com-query-response.html#packet-Protocol::ColumnType
-// https://dev.mysql.com/doc/dev/mysql-server/latest/field__types_8h.html
-const (
-	MySQLTypeDecimal TableColumnType = iota
-	MySQLTypeTiny
-	MySQLTypeShort
-	MySQLTypeLong
-	MySQLTypeFloat
-	MySQLTypeDouble
-	MySQLTypeNull
-	MySQLTypeTimestamp
-	MySQLTypeLongLong
-	MySQLTypeInt24
-	MySQLTypeDate
-	MySQLTypeTime
-	MySQLTypeDatetime
-	MySQLTypeYear
-	MySQLTypeNewDate
-	MySQLTypeVarchar
-	MySQLTypeBit
-	MySQLTypeTimestamp2
-	MySQLTypeDatetime2
-	MySQLTypeTime2
-	MySQLTypeTypedArray
-	MySQLTypeInvalid = iota + 0xde
-	MySQLTypeBool
-	MySQLTypeJson
-	MySQLTypeNewDecimal
-	MySQLTypeEnum
-	MySQLTypeSet
-	MySQLTypeTinyBlob
-	MySQLTypeMediumBlob
-	MySQLTypeLongBlob
-	MySQLTypeBlob
-	MySQLTypeVarString
-	MySQLTypeString
-	MySQLTypeGeometry
-)
-
-func (t TableColumnType) String() string {
-	switch t {
-	case MySQLTypeDecimal:
-		return "MYSQL_TYPE_DECIMAL"
-	case MySQLTypeTiny:
-		return "MYSQL_TYPE_TINY"
-	case MySQLTypeShort:
-		return "MYSQL_TYPE_SHORT"
-	case MySQLTypeLong:
-		return "MYSQL_TYPE_LONG"
-	case MySQLTypeFloat:
-		return "MYSQL_TYPE_FLOAT"
-	case MySQLTypeDouble:
-		return "MYSQL_TYPE_DOUBLE"
-	case MySQLTypeNull:
-		return "MYSQL_TYPE_NULL"
-	case MySQLTypeTimestamp:
-		return "MYSQL_TYPE_TIMESTAMP"
-	case MySQLTypeLongLong:
-		return "MYSQL_TYPE_LONGLONG"
-	case MySQLTypeInt24:
-		return "MYSQL_TYPE_INT24"
-	case MySQLTypeDate:
-		return "MYSQL_TYPE_DATE"
-	case MySQLTypeTime:
-		return "MYSQL_TYPE_TIME"
-	case MySQLTypeDatetime:
-		return "MYSQL_TYPE_DATETIME"
-	case MySQLTypeYear:
-		return "MYSQL_TYPE_YEAR"
-	case MySQLTypeNewDate:
-		return "MYSQL_TYPE_NEWDATE"
-	case MySQLTypeVarchar:
-		return "MYSQL_TYPE_VARCHAR"
-	case MySQLTypeBit:
-		return "MYSQL_TYPE_BIT"
-	case MySQLTypeTimestamp2:
-		return "MYSQL_TYPE_TIMESTAMP2"
-	case MySQLTypeDatetime2:
-		return "MYSQL_TYPE_DATETIME2"
-	case MySQLTypeTime2:
-		return "MYSQL_TYPE_TIME2"
-	case MySQLTypeTypedArray:
-		return "MYSQL_TYPE_TYPED_ARRAY"
-	case MySQLTypeInvalid:
-		return "MYSQL_TYPE_INVALID"
-	case MySQLTypeBool:
-		return "MYSQL_TYPE_BOOL"
-	case MySQLTypeJson:
-		return "MYSQL_TYPE_JSON"
-	case MySQLTypeNewDecimal:
-		return "MYSQL_TYPE_NEWDECIMAL"
-	case MySQLTypeEnum:
-		return "MYSQL_TYPE_ENUM"
-	case MySQLTypeSet:
-		return "MYSQL_TYPE_SET"
-	case MySQLTypeTinyBlob:
-		return "MYSQL_TYPE_TINY_BLOB"
-	case MySQLTypeMediumBlob:
-		return "MYSQL_TYPE_MEDIUM_BLOB"
-	case MySQLTypeLongBlob:
-		return "MYSQL_TYPE_LONG_BLOB"
-	case MySQLTypeBlob:
-		return "MYSQL_TYPE_BLOB"
-	case MySQLTypeVarString:
-		return "MYSQL_TYPE_VAR_STRING"
-	case MySQLTypeString:
-		return "MYSQL_TYPE_STRING"
-	case MySQLTypeGeometry:
-		return "MYSQL_TYPE_GEOMETRY"
-	default:
-		return "Unknown TableColumnType"
-	}
-}
-
 // ColumnDefinition https://dev.mysql.com/doc/internals/en/com-query-response.html#column-definition
 type ColumnDefinition struct {
 	Catalog      string // def
@@ -137,7 +21,7 @@ type ColumnDefinition struct {
 	NextLength   uint64 // 0x0c
 	CharacterSet *charset.Collation
 	ColumnLength uint32
-	ColumnType   TableColumnType
+	ColumnType   flag.TableColumnType
 	Flags        flag.ColumnDefinition
 	Decimals     uint8
 
@@ -190,7 +74,7 @@ func ParseColumnDefinition(bs []byte) (p *ColumnDefinition, err error) {
 	}
 
 	p.ColumnLength = uint32(FixedLengthInteger.Get(buf.Next(4)))
-	p.ColumnType = TableColumnType(FixedLengthInteger.Get(buf.Next(1)))
+	p.ColumnType = flag.TableColumnType(FixedLengthInteger.Get(buf.Next(1)))
 	p.Flags = flag.ColumnDefinition(FixedLengthInteger.Get(buf.Next(2)))
 	p.Decimals = uint8(FixedLengthInteger.Get(buf.Next(1)))
 

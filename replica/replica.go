@@ -6,20 +6,23 @@ import (
 	"github.com/google/uuid"
 	"github.com/vczyh/mysql-protocol/binlog"
 	"github.com/vczyh/mysql-protocol/client"
+	"github.com/vczyh/mysql-protocol/flag"
 	"github.com/vczyh/mysql-protocol/packet"
 	"io"
 	"math/big"
 	"strconv"
+	"time"
 )
 
 type Replica struct {
-	host       string
-	port       int
-	user       string
-	password   string
-	serverId   uint32
-	uuid       string
-	reportHost string
+	host                  string
+	port                  int
+	user                  string
+	password              string
+	serverId              uint32
+	uuid                  string
+	reportHost            string
+	sourceHeartbeatPeriod time.Duration
 
 	sourceServerId uint32
 	sourceUUID     string
@@ -51,7 +54,12 @@ func (r *Replica) StartDump(file string, position int) (*Streamer, error) {
 		return nil, fmt.Errorf("source and replica have equal server id")
 	}
 
-	//r.conn.Exec(fmt.Sprintf("SET @master_heartbeat_period = %s, @source_heartbeat_period = %s",))
+	if r.sourceHeartbeatPeriod != 0 {
+		if _, err := r.conn.Exec(fmt.Sprintf("SET @master_heartbeat_period = %d, @source_heartbeat_period = %d",
+			r.sourceHeartbeatPeriod.Nanoseconds(), r.sourceHeartbeatPeriod.Nanoseconds())); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := r.getSourceUUID(); err != nil {
 		return nil, err
@@ -215,7 +223,7 @@ func (r *Replica) readOKERRPacket() error {
 }
 
 func (r *Replica) writeRegisterReplicaPacket() error {
-	return r.conn.WriteCommandPacket(&RegisterReplica{
+	return r.conn.WriteCommandPacket(&packet.RegisterReplica{
 		Command:  packet.ComRegisterSlave,
 		ServerId: r.serverId,
 		Hostname: r.reportHost,
@@ -223,10 +231,10 @@ func (r *Replica) writeRegisterReplicaPacket() error {
 }
 
 func (r *Replica) writeBinlogDumpPacket(file string, position uint32) error {
-	return r.conn.WriteCommandPacket(&BinlogDump{
+	return r.conn.WriteCommandPacket(&packet.BinlogDump{
 		Command:  packet.ComBinlogDump,
 		Position: position,
-		Flags:    binlog.DumpFlagThroughPosition,
+		Flags:    flag.BinlogDumpFlag(1 << 1),
 		ServerId: r.serverId,
 		FileName: file,
 	})
@@ -270,6 +278,12 @@ func WithUUID(uuid string) Option {
 func WithReportHost(host string) Option {
 	return optionFunc(func(r *Replica) {
 		r.reportHost = host
+	})
+}
+
+func WithSourceHeartbeatPeriod(d time.Duration) Option {
+	return optionFunc(func(r *Replica) {
+		r.sourceHeartbeatPeriod = d
 	})
 }
 

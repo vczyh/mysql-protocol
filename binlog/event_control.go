@@ -512,3 +512,42 @@ func (e *IncidentEvent) String() string {
 
 	return sb.String()
 }
+
+type HeartbeatEvent struct {
+	EventHeader
+	IdentLen int
+	LogIdent string
+}
+
+func ParseHeartbeatEvent(data []byte) (e *HeartbeatEvent, err error) {
+	buf := mysql.NewBuffer(data)
+	e = new(HeartbeatEvent)
+
+	// Fill Event header.
+	if err := FillEventHeader(&e.EventHeader, buf); err != nil {
+		return nil, err
+	}
+
+	// Parse length of file name.
+	e.IdentLen = buf.Len()
+	if n := 512 - 1; e.IdentLen > n {
+		e.IdentLen = n
+	}
+
+	// Parse file name.
+	if e.LogIdent, err = buf.NextString(e.IdentLen); err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}
+
+func (e *HeartbeatEvent) String() string {
+	sb := new(strings.Builder)
+	sb.WriteString(e.EventHeader.String())
+
+	fmt.Fprintf(sb, "Filename length: %d\n", e.IdentLen)
+	fmt.Fprintf(sb, "Filename: %s\n", e.LogIdent)
+
+	return sb.String()
+}

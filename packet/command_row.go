@@ -56,7 +56,7 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 
 		flags := columns[i].Flags
 		switch columns[i].ColumnType {
-		case MySQLTypeTiny:
+		case flag.MySQLTypeTiny:
 			if flags&flag.UnsignedFlag != 0 {
 				newVal, err := strconv.ParseUint(val, 10, 8)
 				if err != nil {
@@ -71,7 +71,7 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 				cv.Value = int8(newVal)
 			}
 
-		case MySQLTypeShort, MySQLTypeYear:
+		case flag.MySQLTypeShort, flag.MySQLTypeYear:
 			if flags&flag.UnsignedFlag != 0 {
 				newVal, err := strconv.ParseUint(val, 10, 16)
 				if err != nil {
@@ -86,7 +86,7 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 				cv.Value = int16(newVal)
 			}
 
-		case MySQLTypeInt24, MySQLTypeLong:
+		case flag.MySQLTypeInt24, flag.MySQLTypeLong:
 			if flags&flag.UnsignedFlag != 0 {
 				newVal, err := strconv.ParseUint(val, 10, 32)
 				if err != nil {
@@ -101,7 +101,7 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 				cv.Value = int32(newVal)
 			}
 
-		case MySQLTypeLongLong:
+		case flag.MySQLTypeLongLong:
 			if flags&flag.UnsignedFlag != 0 {
 				cv.Value, err = strconv.ParseUint(val, 10, 64)
 			} else {
@@ -111,36 +111,36 @@ func ParseTextResultSetRow(data []byte, columns []*ColumnDefinition, loc *time.L
 				return nil, err
 			}
 
-		case MySQLTypeFloat:
+		case flag.MySQLTypeFloat:
 			newVal, err := strconv.ParseFloat(val, 32)
 			if err != nil {
 				return nil, err
 			}
 			cv.Value = float32(newVal)
 
-		case MySQLTypeDouble:
+		case flag.MySQLTypeDouble:
 			cv.Value, err = strconv.ParseFloat(val, 64)
 			if err != nil {
 				return nil, err
 			}
 
-		case MySQLTypeVarchar,
-			MySQLTypeBit,
-			MySQLTypeEnum,
-			MySQLTypeSet,
-			MySQLTypeTinyBlob, MySQLTypeMediumBlob, MySQLTypeLongBlob, MySQLTypeBlob,
-			MySQLTypeVarString, MySQLTypeString,
-			MySQLTypeDecimal, MySQLTypeNewDecimal:
+		case flag.MySQLTypeVarchar,
+			flag.MySQLTypeBit,
+			flag.MySQLTypeEnum,
+			flag.MySQLTypeSet,
+			flag.MySQLTypeTinyBlob, flag.MySQLTypeMediumBlob, flag.MySQLTypeLongBlob, flag.MySQLTypeBlob,
+			flag.MySQLTypeVarString, flag.MySQLTypeString,
+			flag.MySQLTypeDecimal, flag.MySQLTypeNewDecimal:
 			cv.Value = []byte(val)
 
-		case MySQLTypeDate, MySQLTypeDatetime, MySQLTypeTimestamp:
+		case flag.MySQLTypeDate, flag.MySQLTypeDatetime, flag.MySQLTypeTimestamp:
 			dt, err := parseDatetime(val, loc)
 			if err != nil {
 				return nil, err
 			}
 			cv.Value = *dt
 
-		case MySQLTypeTime:
+		case flag.MySQLTypeTime:
 			t, err := parseTime(val)
 			if err != nil {
 				return nil, err
@@ -208,7 +208,7 @@ func ParseBinaryResultSetRow(data []byte, columns []ColumnDefinition, loc *time.
 
 		// https://dev.mysql.com/doc/internals/en/binary-protocol-value.html
 		switch columns[i].ColumnType {
-		case MySQLTypeTiny:
+		case flag.MySQLTypeTiny:
 			val := FixedLengthInteger.Get(buf.Next(1))
 			if flags&flag.UnsignedFlag != 0 {
 				cv.Value = uint8(val)
@@ -216,7 +216,7 @@ func ParseBinaryResultSetRow(data []byte, columns []ColumnDefinition, loc *time.
 				cv.Value = int8(val)
 			}
 
-		case MySQLTypeShort, MySQLTypeYear:
+		case flag.MySQLTypeShort, flag.MySQLTypeYear:
 			val := FixedLengthInteger.Get(buf.Next(2))
 			if flags&flag.UnsignedFlag != 0 {
 				cv.Value = uint16(val)
@@ -224,7 +224,7 @@ func ParseBinaryResultSetRow(data []byte, columns []ColumnDefinition, loc *time.
 				cv.Value = int16(val)
 			}
 
-		case MySQLTypeInt24, MySQLTypeLong:
+		case flag.MySQLTypeInt24, flag.MySQLTypeLong:
 			val := FixedLengthInteger.Get(buf.Next(4))
 			if flags&flag.UnsignedFlag != 0 {
 				cv.Value = uint32(val)
@@ -232,7 +232,7 @@ func ParseBinaryResultSetRow(data []byte, columns []ColumnDefinition, loc *time.
 				cv.Value = int32(val)
 			}
 
-		case MySQLTypeLongLong:
+		case flag.MySQLTypeLongLong:
 			val := FixedLengthInteger.Get(buf.Next(8))
 			if flags&flag.UnsignedFlag != 0 {
 				cv.Value = val
@@ -240,26 +240,26 @@ func ParseBinaryResultSetRow(data []byte, columns []ColumnDefinition, loc *time.
 				cv.Value = int64(val)
 			}
 
-		case MySQLTypeFloat:
+		case flag.MySQLTypeFloat:
 			cv.Value = math.Float32frombits(uint32(FixedLengthInteger.Get(buf.Next(4))))
 
-		case MySQLTypeDouble:
+		case flag.MySQLTypeDouble:
 			cv.Value = math.Float64frombits(FixedLengthInteger.Get(buf.Next(8)))
 
-		case MySQLTypeVarchar,
-			MySQLTypeBit,
-			MySQLTypeEnum,
-			MySQLTypeSet,
-			MySQLTypeTinyBlob, MySQLTypeMediumBlob, MySQLTypeLongBlob, MySQLTypeBlob,
-			MySQLTypeVarString, MySQLTypeString,
-			MySQLTypeDecimal, MySQLTypeNewDecimal:
+		case flag.MySQLTypeVarchar,
+			flag.MySQLTypeBit,
+			flag.MySQLTypeEnum,
+			flag.MySQLTypeSet,
+			flag.MySQLTypeTinyBlob, flag.MySQLTypeMediumBlob, flag.MySQLTypeLongBlob, flag.MySQLTypeBlob,
+			flag.MySQLTypeVarString, flag.MySQLTypeString,
+			flag.MySQLTypeDecimal, flag.MySQLTypeNewDecimal:
 			data, err := LengthEncodedString.Get(buf)
 			if err != nil {
 				return nil, err
 			}
 			cv.Value = data
 
-		case MySQLTypeDate, MySQLTypeDatetime, MySQLTypeTimestamp:
+		case flag.MySQLTypeDate, flag.MySQLTypeDatetime, flag.MySQLTypeTimestamp:
 			dataLen := FixedLengthInteger.Get(buf.Next(1))
 			if dataLen == 0 {
 				cv.Value = time.Time{}
@@ -296,7 +296,7 @@ func ParseBinaryResultSetRow(data []byte, columns []ColumnDefinition, loc *time.
 					loc)
 			}
 
-		case MySQLTypeTime:
+		case flag.MySQLTypeTime:
 			dataLen := FixedLengthInteger.Get(buf.Next(1))
 			if dataLen == 0 {
 				cv.Value = time.Time{}

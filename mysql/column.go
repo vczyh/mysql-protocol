@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/vczyh/mysql-protocol/charset"
 	"github.com/vczyh/mysql-protocol/flag"
-	"github.com/vczyh/mysql-protocol/packet"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +17,7 @@ type Column struct {
 	OrgName  string
 	CharSet  *charset.Collation
 	Length   uint32
-	Type     packet.TableColumnType
+	Type     flag.TableColumnType
 	Flags    flag.ColumnDefinition
 	Decimals byte
 }

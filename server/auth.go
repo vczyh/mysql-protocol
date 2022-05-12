@@ -294,12 +294,17 @@ func (s *Server) plaintextPassword(conn mysql.Conn, privateKey *rsa.PrivateKey, 
 func (s *Server) writeHandshakePacket(conn mysql.Conn) (*packet.Handshake, error) {
 	salt1 := auth.Bytes(8)
 
+	charSet, err := charset.GetCollationByName(charset.UTF8MB40900AiCi)
+	if err != nil {
+		return nil, err
+	}
+
 	hs := &packet.Handshake{
 		ProtocolVersion:   0x0a,
 		ServerVersion:     s.config.Version,
 		ConnectionId:      conn.ConnectionId(),
 		Salt1:             salt1,
-		CharacterSet:      charset.Utf8mb40900AiCi,
+		CharacterSet:      charSet,
 		StatusFlags:       flag.ServerStatusAutocommit,
 		AuthPluginDataLen: 21,
 		AuthPlugin:        s.config.DefaultAuthMethod,
